@@ -1,0 +1,10 @@
+# Hosted dashboard only. The app reads precomputed results from the DuckDB store,
+# so it needs no optimiser or backtest libraries. To rebuild data or rerun the
+# engine locally, use requirements-engine.txt instead.
+streamlit==1.59.1
+pandas==3.0.3
+numpy==2.5.1
+matplotlib==3.11.0
+altair==6.2.2
+duckdb==1.5.4
+PyYAML==6.0.3

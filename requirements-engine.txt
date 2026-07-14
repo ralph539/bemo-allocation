@@ -1,0 +1,29 @@
+# Bemo asset-allocation full engine stack (data build, optimisation, backtest).
+# The hosted dashboard does NOT need these; it reads precomputed results from the
+# DuckDB store. Install this only to rebuild data or rerun the engine locally:
+#   pip install -r requirements-engine.txt
+
+# --- core numerical ---
+numpy
+pandas
+scipy
+matplotlib
+
+# --- portfolio optimisation ---
+PyPortfolioOpt          # MVO, Black-Litterman, shrinkage, HRP
+riskfolio-lib           # risk parity/budgeting, CVaR & drawdown measures, HRP/HERC, attribution
+skfolio                 # scikit-learn API: cross-validation, model selection, stress-testing
+cvxpy                   # convex solver backend (used by riskfolio-lib / skfolio)
+
+# --- backtesting & analytics ---
+bt                      # allocation / rebalancing backtests
+quantstats              # performance & risk tearsheets
+
+# --- data ---
+yfinance                # quick prototyping data; replace with Bloomberg (blpapi / xbbg) in production
+
+# --- reporting ---
+duckdb
+altair
+streamlit
+PyYAML

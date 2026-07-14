@@ -1,0 +1,216 @@
+# Bemo Europe - canonical universe, the bridge from models/Bemo_Allocation_Models_4Tiers.xlsx
+# (Bemo 4-Tier sheet) to code. Weights are % of portfolio, each tier sums to 100.
+# fx: native = EUR-quoted; traded = EUR-quoted line of a non-EUR index (unhedged);
+#     unhedged = non-EUR quote, converted to EUR via ECB rate; hedged = EUR-hedged share class.
+base_currency: EUR
+start: "2008-01-01"
+
+sleeves:
+  - name: Equity - Europe (home)
+    bucket: Equity
+    proxy: IMEU.AS
+    quote_ccy: EUR
+    fx: native
+    ucits_example: iShares Core MSCI Europe UCITS ETF EUR (Dist)
+    weights: {conservative: 9, balanced: 14, growth: 18, aggressive: 20}
+
+  - name: Equity - US
+    bucket: Equity
+    proxy: SXR8.DE
+    quote_ccy: EUR
+    fx: traded
+    ucits_example: iShares Core S&P 500 UCITS ETF (Acc), Xetra EUR line
+    weights: {conservative: 10, balanced: 18, growth: 26, aggressive: 32}
+
+  - name: Equity - Developed Asia-Pacific / Japan
+    bucket: Equity
+    proxy: SJPA.L
+    quote_ccy: GBp
+    fx: unhedged
+    ucits_example: iShares Core MSCI Japan IMI UCITS ETF USD (Acc)
+    weights: {conservative: 4, balanced: 8, growth: 12, aggressive: 13}
+
+  - name: Equity - Emerging / Asia
+    bucket: Equity
+    proxy: IS3N.DE
+    quote_ccy: EUR
+    fx: traded
+    ucits_example: iShares Core MSCI EM IMI UCITS ETF (Acc)
+    weights: {conservative: 3, balanced: 8, growth: 9, aggressive: 11}
+
+  - name: Equity - Thematic AI / automation
+    bucket: Equity
+    proxy: XAIX.DE
+    quote_ccy: EUR
+    fx: traded
+    ucits_example: Xtrackers Artificial Intelligence & Big Data UCITS ETF 1C
+    weights: {conservative: 2, balanced: 4, growth: 5, aggressive: 6}
+
+  - name: Fixed income - EUR Govt / core
+    bucket: Fixed income
+    proxy: IEGA.AS
+    quote_ccy: EUR
+    fx: native
+    ucits_example: iShares Core Euro Govt Bond UCITS ETF EUR (Dist)
+    weights: {conservative: 34, balanced: 15, growth: 9, aggressive: 3}
+
+  - name: Fixed income - EUR IG credit
+    bucket: Fixed income
+    proxy: IEAC.AS
+    quote_ccy: EUR
+    fx: native
+    ucits_example: iShares Core Euro Corp Bond UCITS ETF EUR (Dist)
+    weights: {conservative: 12, balanced: 9, growth: 5, aggressive: 2}
+
+  - name: Fixed income - Inflation-linked
+    bucket: Fixed income
+    proxy: IBCI.AS
+    quote_ccy: EUR
+    fx: native
+    ucits_example: iShares Euro Inflation Linked Govt Bond UCITS ETF EUR (Acc)
+    weights: {conservative: 6, balanced: 4, growth: 2, aggressive: 1}
+
+  - name: Fixed income - High yield
+    bucket: Fixed income
+    proxy: IHYG.L
+    quote_ccy: EUR
+    fx: traded
+    ucits_example: iShares Euro High Yield Corp Bond UCITS ETF EUR (Dist)
+    weights: {conservative: 4, balanced: 3, growth: 1, aggressive: 0}
+
+  - name: Fixed income - EM debt
+    bucket: Fixed income
+    proxy: EMBE.L
+    quote_ccy: EUR
+    fx: hedged
+    ucits_example: iShares J.P. Morgan $ EM Bond EUR Hedged UCITS ETF (Dist)
+    weights: {conservative: 4, balanced: 3, growth: 1, aggressive: 0}
+
+  - name: Gold
+    bucket: Alternatives
+    proxy: SGLN.L
+    quote_ccy: GBp
+    fx: unhedged
+    ucits_example: iShares Physical Gold ETC
+    weights: {conservative: 3, balanced: 4, growth: 4, aggressive: 5}
+
+  - name: Liquid alternatives / hedge funds
+    bucket: Alternatives
+    proxy: DBMF
+    quote_ccy: USD
+    fx: unhedged
+    ucits_example: iMGP DBi Managed Futures (US proxy; no clean EUR UCITS)
+    weights: {conservative: 3, balanced: 4, growth: 3, aggressive: 2}
+
+  - name: Real assets / REITs / infrastructure
+    bucket: Alternatives
+    proxy: INFR.L
+    quote_ccy: GBp
+    fx: unhedged
+    ucits_example: iShares Global Infrastructure UCITS ETF USD (Dist)
+    weights: {conservative: 3, balanced: 4, growth: 3, aggressive: 3}
+
+  - name: Private markets
+    bucket: Alternatives
+    proxy: null   # 0 in every tier; excluded from the data pull
+    quote_ccy: null
+    fx: none
+    ucits_example: ELTIF / evergreen, large mandates only
+    weights: {conservative: 0, balanced: 0, growth: 0, aggressive: 0}
+
+  - name: Cash / EUR money market
+    bucket: Cash
+    proxy: XEON.DE
+    quote_ccy: EUR
+    fx: native
+    ucits_example: Xtrackers II EUR Overnight Rate Swap UCITS ETF (ESTR)
+    weights: {conservative: 3, balanced: 2, growth: 2, aggressive: 2}
+
+# Caps and guardrails, mirroring the xlsx "CAPS & GUARDRAILS" block.
+caps:
+  regulatory_ucits:
+    diversification_5_10_40: "Max 10% NAV per issuer; sum of holdings >5% must not exceed 40% NAV. Govt/public exempt to 35% (or 100% across >=6 issues)."
+    counterparty: "<=20% NAV deposits with one body; OTC-derivative counterparty <=10% (credit institution) / 5% (other)."
+    eligible_assets: "Transferable securities, MMIs and eligible UCIs only. No direct physical commodities; gold via ETC (debt security)."
+    liquidity: "Daily-liquid listed instruments; illiquid/private assets excluded from the UCITS wrapper."
+  equity_band:   # equity share is the tier's primary cap
+    conservative: [0, 30]
+    balanced: [50, 55]
+    growth: [68, 75]
+    aggressive: [82, 92]
+  em_equity_max_pct_of_equity: [10, 20]
+  hy_plus_em_debt:
+    lower_tiers_max: 8      # combined, ~6-8% in lower tiers
+    aggressive_core: 0
+  gold_pct: [3, 5]
+  thematic_ai_max_pct_of_equity: [5, 10]
+  private_markets_standard_model: 0
+  tactical_band_pct: [5, 10]     # +/- drift per sleeve around strategic weight
+  tail_risk: "Per-tier ceiling on 95% CVaR and max drawdown, enforced as an optimiser constraint."
+  rebalancing: "Tolerance-band trigger plus a turnover cap."
+
+# Strategic weight variants. Chosen from the peer survey and the house rules,
+# never fitted to backtest performance. sleeves[].weights above is the house variant.
+# equity_band keeps each tier's house offsets relative to its own equity total.
+variants:
+  house:
+    description: Current Bemo weights. Justified against the peer survey and the house rules.
+    equity_band:
+      conservative: [0, 30]
+      balanced: [50, 55]
+      growth: [68, 75]
+      aggressive: [82, 92]
+    weights:
+      conservative: {"Equity - Europe (home)": 9, "Equity - US": 10, "Equity - Developed Asia-Pacific / Japan": 4, "Equity - Emerging / Asia": 3, "Equity - Thematic AI / automation": 2, "Fixed income - EUR Govt / core": 34, "Fixed income - EUR IG credit": 12, "Fixed income - Inflation-linked": 6, "Fixed income - High yield": 4, "Fixed income - EM debt": 4, "Gold": 3, "Liquid alternatives / hedge funds": 3, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 3}
+      balanced: {"Equity - Europe (home)": 14, "Equity - US": 18, "Equity - Developed Asia-Pacific / Japan": 8, "Equity - Emerging / Asia": 8, "Equity - Thematic AI / automation": 4, "Fixed income - EUR Govt / core": 15, "Fixed income - EUR IG credit": 9, "Fixed income - Inflation-linked": 4, "Fixed income - High yield": 3, "Fixed income - EM debt": 3, "Gold": 4, "Liquid alternatives / hedge funds": 4, "Real assets / REITs / infrastructure": 4, "Private markets": 0, "Cash / EUR money market": 2}
+      growth: {"Equity - Europe (home)": 18, "Equity - US": 26, "Equity - Developed Asia-Pacific / Japan": 12, "Equity - Emerging / Asia": 9, "Equity - Thematic AI / automation": 5, "Fixed income - EUR Govt / core": 9, "Fixed income - EUR IG credit": 5, "Fixed income - Inflation-linked": 2, "Fixed income - High yield": 1, "Fixed income - EM debt": 1, "Gold": 4, "Liquid alternatives / hedge funds": 3, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 2}
+      aggressive: {"Equity - Europe (home)": 20, "Equity - US": 32, "Equity - Developed Asia-Pacific / Japan": 13, "Equity - Emerging / Asia": 11, "Equity - Thematic AI / automation": 6, "Fixed income - EUR Govt / core": 3, "Fixed income - EUR IG credit": 2, "Fixed income - Inflation-linked": 1, "Fixed income - High yield": 0, "Fixed income - EM debt": 0, "Gold": 5, "Liquid alternatives / hedge funds": 2, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 2}
+  peer_mid:
+    description: Bucket totals moved to the survey average, renormalised to 100. Within-bucket split follows the house rules, so gold keeps its 3 percent floor.
+    equity_band:
+      conservative: [0, 28]
+      balanced: [54, 59]
+      growth: [75, 82]
+      aggressive: [86, 96]
+    weights:
+      conservative: {"Equity - Europe (home)": 8, "Equity - US": 9, "Equity - Developed Asia-Pacific / Japan": 4, "Equity - Emerging / Asia": 3, "Equity - Thematic AI / automation": 2, "Fixed income - EUR Govt / core": 39, "Fixed income - EUR IG credit": 14, "Fixed income - Inflation-linked": 7, "Fixed income - High yield": 4, "Fixed income - EM debt": 4, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 3}
+      balanced: {"Equity - Europe (home)": 15, "Equity - US": 19, "Equity - Developed Asia-Pacific / Japan": 9, "Equity - Emerging / Asia": 9, "Equity - Thematic AI / automation": 4, "Fixed income - EUR Govt / core": 16, "Fixed income - EUR IG credit": 10, "Fixed income - Inflation-linked": 4, "Fixed income - High yield": 3, "Fixed income - EM debt": 3, "Gold": 5, "Liquid alternatives / hedge funds": 1, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      growth: {"Equity - Europe (home)": 20, "Equity - US": 29, "Equity - Developed Asia-Pacific / Japan": 13, "Equity - Emerging / Asia": 10, "Equity - Thematic AI / automation": 5, "Fixed income - EUR Govt / core": 9, "Fixed income - EUR IG credit": 5, "Fixed income - Inflation-linked": 2, "Fixed income - High yield": 1, "Fixed income - EM debt": 1, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      aggressive: {"Equity - Europe (home)": 21, "Equity - US": 34, "Equity - Developed Asia-Pacific / Japan": 14, "Equity - Emerging / Asia": 11, "Equity - Thematic AI / automation": 6, "Fixed income - EUR Govt / core": 5, "Fixed income - EUR IG credit": 3, "Fixed income - Inflation-linked": 1, "Fixed income - High yield": 0, "Fixed income - EM debt": 0, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+  peer_low:
+    description: Bucket totals at the low edge of the survey. Defensive stress case.
+    equity_band:
+      conservative: [0, 12]
+      balanced: [38, 43]
+      growth: [67, 74]
+      aggressive: [80, 90]
+    weights:
+      conservative: {"Equity - Europe (home)": 3, "Equity - US": 4, "Equity - Developed Asia-Pacific / Japan": 1, "Equity - Emerging / Asia": 1, "Equity - Thematic AI / automation": 1, "Fixed income - EUR Govt / core": 50, "Fixed income - EUR IG credit": 18, "Fixed income - Inflation-linked": 8, "Fixed income - High yield": 3, "Fixed income - EM debt": 5, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 3}
+      balanced: {"Equity - Europe (home)": 11, "Equity - US": 14, "Equity - Developed Asia-Pacific / Japan": 6, "Equity - Emerging / Asia": 6, "Equity - Thematic AI / automation": 3, "Fixed income - EUR Govt / core": 24, "Fixed income - EUR IG credit": 14, "Fixed income - Inflation-linked": 6, "Fixed income - High yield": 4, "Fixed income - EM debt": 4, "Gold": 5, "Liquid alternatives / hedge funds": 1, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      growth: {"Equity - Europe (home)": 18, "Equity - US": 25, "Equity - Developed Asia-Pacific / Japan": 12, "Equity - Emerging / Asia": 9, "Equity - Thematic AI / automation": 5, "Fixed income - EUR Govt / core": 13, "Fixed income - EUR IG credit": 7, "Fixed income - Inflation-linked": 3, "Fixed income - High yield": 2, "Fixed income - EM debt": 1, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      aggressive: {"Equity - Europe (home)": 19, "Equity - US": 31, "Equity - Developed Asia-Pacific / Japan": 13, "Equity - Emerging / Asia": 11, "Equity - Thematic AI / automation": 6, "Fixed income - EUR Govt / core": 8, "Fixed income - EUR IG credit": 5, "Fixed income - Inflation-linked": 2, "Fixed income - High yield": 0, "Fixed income - EM debt": 0, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+  peer_high:
+    description: Bucket totals at the high edge of the survey, capped so the tier still sums to 100. Equity-heavy stress case.
+    equity_band:
+      conservative: [12, 42]
+      balanced: [60, 65]
+      growth: [78, 85]
+      aggressive: [95, 100]
+    weights:
+      conservative: {"Equity - Europe (home)": 13, "Equity - US": 14, "Equity - Developed Asia-Pacific / Japan": 6, "Equity - Emerging / Asia": 4, "Equity - Thematic AI / automation": 3, "Fixed income - EUR Govt / core": 30, "Fixed income - EUR IG credit": 11, "Fixed income - Inflation-linked": 5, "Fixed income - High yield": 4, "Fixed income - EM debt": 4, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 3}
+      balanced: {"Equity - Europe (home)": 17, "Equity - US": 21, "Equity - Developed Asia-Pacific / Japan": 10, "Equity - Emerging / Asia": 9, "Equity - Thematic AI / automation": 5, "Fixed income - EUR Govt / core": 13, "Fixed income - EUR IG credit": 8, "Fixed income - Inflation-linked": 3, "Fixed income - High yield": 3, "Fixed income - EM debt": 3, "Gold": 5, "Liquid alternatives / hedge funds": 1, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      growth: {"Equity - Europe (home)": 20, "Equity - US": 30, "Equity - Developed Asia-Pacific / Japan": 14, "Equity - Emerging / Asia": 10, "Equity - Thematic AI / automation": 6, "Fixed income - EUR Govt / core": 7, "Fixed income - EUR IG credit": 4, "Fixed income - Inflation-linked": 2, "Fixed income - High yield": 1, "Fixed income - EM debt": 1, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+      aggressive: {"Equity - Europe (home)": 23, "Equity - US": 37, "Equity - Developed Asia-Pacific / Japan": 15, "Equity - Emerging / Asia": 13, "Equity - Thematic AI / automation": 7, "Fixed income - EUR Govt / core": 0, "Fixed income - EUR IG credit": 0, "Fixed income - Inflation-linked": 0, "Fixed income - High yield": 0, "Fixed income - EM debt": 0, "Gold": 3, "Liquid alternatives / hedge funds": 0, "Real assets / REITs / infrastructure": 0, "Private markets": 0, "Cash / EUR money market": 2}
+
+  us_tilt:
+    description: US-tilted. Bucket totals identical to house; only the developed-equity regional split changes, to the benchmark mix US 70 / Europe 18 / Japan 12. Chosen to match the benchmark, NOT from the peer survey. It uses hindsight about which region outperformed in the test window and it suspends the house Europe tilt, so it is a diagnostic for the regional bet, not a policy proposal.
+    equity_band:
+      conservative: [0, 30]
+      balanced: [50, 55]
+      growth: [68, 75]
+      aggressive: [82, 92]
+    weights:
+      conservative: {"Equity - Europe (home)": 4, "Equity - US": 16, "Equity - Developed Asia-Pacific / Japan": 3, "Equity - Emerging / Asia": 3, "Equity - Thematic AI / automation": 2, "Fixed income - EUR Govt / core": 34, "Fixed income - EUR IG credit": 12, "Fixed income - Inflation-linked": 6, "Fixed income - High yield": 4, "Fixed income - EM debt": 4, "Gold": 3, "Liquid alternatives / hedge funds": 3, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 3}
+      balanced: {"Equity - Europe (home)": 7, "Equity - US": 28, "Equity - Developed Asia-Pacific / Japan": 5, "Equity - Emerging / Asia": 8, "Equity - Thematic AI / automation": 4, "Fixed income - EUR Govt / core": 15, "Fixed income - EUR IG credit": 9, "Fixed income - Inflation-linked": 4, "Fixed income - High yield": 3, "Fixed income - EM debt": 3, "Gold": 4, "Liquid alternatives / hedge funds": 4, "Real assets / REITs / infrastructure": 4, "Private markets": 0, "Cash / EUR money market": 2}
+      growth: {"Equity - Europe (home)": 10, "Equity - US": 39, "Equity - Developed Asia-Pacific / Japan": 7, "Equity - Emerging / Asia": 9, "Equity - Thematic AI / automation": 5, "Fixed income - EUR Govt / core": 9, "Fixed income - EUR IG credit": 5, "Fixed income - Inflation-linked": 2, "Fixed income - High yield": 1, "Fixed income - EM debt": 1, "Gold": 4, "Liquid alternatives / hedge funds": 3, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 2}
+      aggressive: {"Equity - Europe (home)": 12, "Equity - US": 45, "Equity - Developed Asia-Pacific / Japan": 8, "Equity - Emerging / Asia": 11, "Equity - Thematic AI / automation": 6, "Fixed income - EUR Govt / core": 3, "Fixed income - EUR IG credit": 2, "Fixed income - Inflation-linked": 1, "Fixed income - High yield": 0, "Fixed income - EM debt": 0, "Gold": 5, "Liquid alternatives / hedge funds": 2, "Real assets / REITs / infrastructure": 3, "Private markets": 0, "Cash / EUR money market": 2}

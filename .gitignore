@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# heavy source assets the hosted app does not need
+reference/
+docs/
+models/
+sources/
+scratch/
+reports/
+reports_us/
+
+# data: keep only the US DuckDB the deployed dashboard reads
+data/parquet/
+data/parquet_us/
+data/bemo.duckdb
+!data/bemo_us.duckdb
