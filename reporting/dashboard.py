@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pandas as pd
 import streamlit as st
 
 from reporting import data, charts
@@ -199,7 +200,8 @@ with st.sidebar:
     universe = st.segmented_control("Universe", sorted(opts["universe"].unique()),
                                     default="full_14") or "full_14"
 
-view = st.segmented_control("", ["Single run", "Compare runs", "Full scoreboard"],
+view = st.segmented_control("", ["Single run", "Compare runs", "Full scoreboard",
+                                 "Robustness"],
                             default="Single run", label_visibility="collapsed") or "Single run"
 bench_row = board[(board.universe == universe) & (board.method == BENCH)].iloc[0]
 
@@ -360,7 +362,7 @@ elif view == "Compare runs":
         st.dataframe(style_board(show), use_container_width=True, hide_index=True)
 
 # ---------------- scoreboard ----------------
-else:
+elif view == "Full scoreboard":
     st.title("Full scoreboard")
     b = board[board.universe == universe].copy()
     k = st.columns(3)
@@ -394,5 +396,67 @@ else:
         st.dataframe(style_board(show), use_container_width=True, hide_index=True, height=620)
         st.download_button("Download CSV", show.to_csv(index=False),
                            f"scoreboard_{universe}.csv", "text/csv")
+
+# ---------------- robustness ----------------
+else:
+    st.title("Robustness lab")
+    st.caption("The house engine walked forward across universes, decades and "
+               "crises. Sub-period numbers are slices of one out-of-sample curve "
+               "per run, never re-fitted. Ignores the universe picker: this view "
+               "spans its own universes, including long-history US proxies to 2000 "
+               "and an ETF-plus-stocks mix.")
+    try:
+        con = data._con()
+        rm = con.execute("select * from robustness_metrics").df()
+        rc = con.execute("select * from robustness_curves").df()
+        con.close()
+    except Exception:
+        st.info("No robustness tables yet. Run: .venv/bin/python -m backtest.robustness")
+        st.stop()
+
+    ENG = "mean_cvar"
+    eng_cells = rm[(rm.method == ENG) & (rm.kind != "full")]
+    full_eng = rm[(rm.method == ENG) & (rm.kind == "full")]
+    k = st.columns(4)
+    k[0].metric("Universes", rm.universe.nunique())
+    k[1].metric("OOS span", f"{rm.start.min()[:4]} to {rm.end.max()[:4]}")
+    k[2].metric("Full runs in profit", f"{int((full_eng.ret > 0).sum())}/{len(full_eng)}")
+    aggr = full_eng[full_eng.tier == "aggressive"]
+    k[3].metric("Aggressive beats 60/40", f"{int(aggr.beats_bench.sum())}/{len(aggr)}",
+                help="Full-history total return vs the 60/40 in the same universe.")
+
+    tier_r = st.pills("Tier", TIERS, default="balanced") or "balanced"
+    sub = eng_cells[eng_cells.tier == tier_r]
+    period_order = ["2003-2007", "2008-2012", "2013-2017", "2018-2022", "2023-2026",
+                    "GFC 2008", "Euro crisis 2011", "COVID 2020", "Rate shock 2022"]
+
+    st.subheader("Excess return vs 60/40 by window")
+    piv = sub.pivot_table(index="universe", columns="period", values="excess_ret",
+                          observed=True)
+    piv = piv[[p for p in period_order if p in piv.columns]]
+    st.dataframe(piv.style.format(lambda v: f"{v*100:+.1f}%", na_rep="-")
+                 .map(lambda v: "" if pd.isna(v) else
+                      ("background-color:#DCEBE2" if v > 0
+                       else "background-color:#F3D9D7")),
+                 use_container_width=True)
+    st.caption("Green = the engine beat 60/40 in that window, same universe. "
+               "Crisis columns are peak-to-trough slices.")
+
+    st.subheader("Out-of-sample growth of 1")
+    uni = st.pills("Universe", sorted(rc.universe.unique()),
+                   default="us_long") or "us_long"
+    cur = rc[(rc.universe == uni)
+             & (((rc.method == ENG) & (rc.tier == tier_r))
+                | (rc.method == BENCH) | ((rc.method == "strategic")
+                                          & (rc.tier == tier_r)))]
+    wide = cur.pivot_table(index="date", columns="method", values="equity",
+                           observed=True).rename(
+        columns={ENG: "engine", BENCH: "60/40", "strategic": "strategic"})
+    st.line_chart(wide, height=340)
+
+    with st.expander("Full robustness table"):
+        st.dataframe(rm, use_container_width=True, hide_index=True, height=480)
+        st.download_button("Download CSV", rm.to_csv(index=False),
+                           "robustness_metrics.csv", "text/csv")
 
 st.caption("Educational reference, not investment advice.")
