@@ -17,3 +17,8 @@ data/parquet/
 data/parquet_us/
 data/bemo.duckdb
 !data/bemo_us.duckdb
+
+# treasury material stays local, never in git
+deploy_treasury_demo/
+treasury_dashboard/
+rami_charts/
