@@ -434,11 +434,15 @@ else:
     piv = sub.pivot_table(index="universe", columns="period", values="excess_ret",
                           observed=True)
     piv = piv[[p for p in period_order if p in piv.columns]]
-    st.dataframe(piv.style.format(lambda v: f"{v*100:+.1f}%", na_rep="-")
-                 .map(lambda v: "" if pd.isna(v) else
-                      ("background-color:#DCEBE2" if v > 0
-                       else "background-color:#F3D9D7")),
-                 use_container_width=True)
+    # format to text first: streamlit renders a NaN cell as "None" whatever the styler says
+    disp = piv.map(lambda v: "" if pd.isna(v) else f"{v * 100:+.1f}%")
+
+    def _shade(col):
+        raw = piv[col.name]
+        return ["" if pd.isna(v) else
+                ("background-color:#DCEBE2" if v > 0 else "background-color:#F3D9D7")
+                for v in raw]
+    st.dataframe(disp.style.apply(_shade, axis=0), use_container_width=True)
     st.caption("Green = the engine beat 60/40 in that window, same universe. "
                "Crisis columns are peak-to-trough slices.")
 
