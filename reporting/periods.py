@@ -15,11 +15,21 @@ BLOCKS = [("2003-2007", "2003-01-01", "2007-12-31"),
           ("2008-2012", "2008-01-01", "2012-12-31"),
           ("2013-2017", "2013-01-01", "2017-12-31"),
           ("2018-2022", "2018-01-01", "2022-12-31"),
-          ("2023-2026", "2023-01-01", "2026-12-31")]
+          ("2023-2026", "2023-01-01", "2026-12-31"),
+          # the same span cut finer, for a closer look at each cycle
+          ("Pre-GFC boom 03-07", "2003-04-01", "2007-09-30"),
+          ("Recovery 09-14", "2009-03-10", "2014-12-31"),
+          ("Low-vol bull 15-19", "2015-01-01", "2019-12-31"),
+          ("Pandemic era 20-21", "2020-01-01", "2021-12-31"),
+          ("Inflation era 22-26", "2022-01-01", "2026-12-31")]
 CRISES = [("GFC 2008", "2007-10-01", "2009-03-09"),
           ("Euro crisis 2011", "2011-05-02", "2011-10-04"),
+          ("Taper tantrum 2013", "2013-05-22", "2013-09-05"),
+          ("China shock 2015", "2015-08-10", "2016-02-11"),
+          ("Q4 2018 selloff", "2018-10-01", "2018-12-24"),
           ("COVID 2020", "2020-02-19", "2020-04-30"),
-          ("Rate shock 2022", "2022-01-03", "2022-10-14")]
+          ("Rate shock 2022", "2022-01-03", "2022-10-14"),
+          ("Banking stress 2023", "2023-03-08", "2023-05-01")]
 
 KIND = {**{n: "block" for n, _, _ in BLOCKS}, **{n: "crisis" for n, _, _ in CRISES}}
 BOUNDS = {n: (s, e) for n, s, e in BLOCKS + CRISES}
@@ -28,8 +38,17 @@ MIN_DAYS = {"block": 120, "crisis": 30}
 NOTE = {
     "GFC 2008": "Peak to trough of the global financial crisis.",
     "Euro crisis 2011": "The euro sovereign debt sell-off.",
+    "Taper tantrum 2013": "Bonds sold off when the Fed signalled tapering.",
+    "China shock 2015": "The yuan devaluation and the growth scare that followed.",
+    "Q4 2018 selloff": "Rate rises and growth fears into Christmas Eve 2018.",
     "COVID 2020": "The pandemic crash, February to April 2020.",
     "Rate shock 2022": "Stocks and bonds fell together as rates rose.",
+    "Banking stress 2023": "Silicon Valley Bank and the regional bank failures.",
+    "Pre-GFC boom 03-07": "The credit and commodity boom before the crisis.",
+    "Recovery 09-14": "From the March 2009 low through the QE recovery.",
+    "Low-vol bull 15-19": "The long, quiet bull market.",
+    "Pandemic era 20-21": "Crash and the liquidity-driven rebound.",
+    "Inflation era 22-26": "Rate rises, inflation, and the years after.",
 }
 
 

@@ -119,15 +119,12 @@ SHORT = {
 }
 
 UNIVERSE_NOTE = {
+    "full_14": "The funded book the bank actually holds, all five weight variants and "
+               "every method. History starts in 2022, limited by the AI sleeve.",
     "us_long": "Long-history US proxies (index mutual funds, gold futures, QQQ for the "
                "thematic sleeve). The only universes that reach back to 2003.",
     "us_long_stocks": "As us_long, with the thematic sleeve as an equal-weight AAPL, MSFT, "
                       "AMZN basket. The ETF-plus-single-stock mix.",
-    "eur_book": "The live EUR 14-sleeve book. The AI sleeve limits history to 2022.",
-    "eur_book_noAI": "The EUR book without the AI sleeve.",
-    "us_book_noAI": "The US-proxy book without the AI sleeve.",
-    "full_14": "The funded 14-sleeve book, all weight variants and every method.",
-    "no_AI_13": "The funded book without the AI sleeve.",
 }
 
 COLS = {"variant": "Variant", "tier": "Tier", "method": "Method", "ann_return": "CAGR %",
@@ -190,7 +187,16 @@ def period_board(universe: str, period: str) -> pd.DataFrame:
 
 board = data.scoreboard()      # full-sample metrics, used for the Deflated Sharpe note
 CURVES = load_curves()
-ALL_UNIVERSES = sorted(CURVES.universe.unique())
+# Only the books that carry the AI sleeve. The no-AI variants and the EUR lab
+# re-runs were diagnostics; showing all seven made the picker unreadable.
+SHOW_UNIVERSES = ["full_14", "us_long", "us_long_stocks"]
+UNIVERSE_NAME = {
+    "full_14": "Funded book, 14 sleeves (2022 on)",
+    "us_long": "Long history, QQQ as the AI sleeve (2003 on)",
+    "us_long_stocks": "Long history, mega-cap AI basket (2003 on)",
+}
+ALL_UNIVERSES = [u for u in SHOW_UNIVERSES if u in set(CURVES.universe.unique())] \
+    or sorted(CURVES.universe.unique())
 LIVE_UNIVERSES = set(CURVES.loc[CURVES.source == "live", "universe"].unique())
 # universes with enough history to be split into decades
 LONG_HISTORY = [u for u in ALL_UNIVERSES
@@ -270,7 +276,7 @@ with st.sidebar:
     st.title("Bemo allocation")
     def _span_label(u):
         d = data.universe_dates(CURVES, u)
-        return f"{u}  ({d.min():%Y} to {d.max():%Y})"
+        return UNIVERSE_NAME.get(u, f"{u}  ({d.min():%Y} to {d.max():%Y})")
 
     universe = st.selectbox("Universe", ALL_UNIVERSES, format_func=_span_label,
                             index=ALL_UNIVERSES.index("full_14")
@@ -338,24 +344,34 @@ if view == "Single run":
     st.caption(DESC.get(method, ""))
 
     bench_row = pboard[pboard.method == BENCH]
+    START = 1_000_000.0
+    end_val = START * (1 + row["ret"])
+    profit = end_val - START
+
     r = st.columns(4)
-    r[0].metric("Return", data.fmt_pct(row["ret"]),
-                help="Total return over the selected window.")
+    r[0].metric("Start", data.fmt_eur(START),
+                help="Every window starts from the same stake, so windows compare.")
+    r[1].metric("End", data.fmt_eur(end_val),
+                delta=f"{data.fmt_eur(profit)} ({row['ret'] * 100:+.1f}%)",
+                help="What the stake is worth at the end of the window.")
     short = pd.isna(row["ann_return"])
-    r[1].metric("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
+    r[2].metric("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
                 help="Annualised growth rate. Not shown on a window under 120 trading "
                      "days: annualising a two-month move produces a number that looks "
                      "like a rate and is not one.")
-    r[2].metric("Sharpe", f"{row['sharpe']:.2f}", help="Return above cash per unit of volatility.")
-    r[3].metric("vs 60/40", data.fmt_pct(row["excess_return"]),
-                help="Total return minus the benchmark's, same window.")
+    r[3].metric("Sharpe", f"{row['sharpe']:.2f}",
+                help="Return above cash per unit of volatility.")
+
     r = st.columns(4)
     r[0].metric("Volatility", "n/a" if pd.isna(row["ann_vol"])
                 else data.fmt_pct(row["ann_vol"]))
     r[1].metric("Max drawdown", data.fmt_pct(row["max_dd"]), help="Worst fall from a peak.")
     r[2].metric("CVaR 95", data.fmt_pct(row["cvar95"]), help="Average of the worst 5% of days.")
     if len(bench_row):
-        r[3].metric("60/40 return", data.fmt_pct(bench_row.iloc[0]["ret"]))
+        b_end = START * (1 + bench_row.iloc[0]["ret"])
+        r[3].metric("60/40 would give", data.fmt_eur(b_end),
+                    delta=f"{data.fmt_eur(end_val - b_end)} vs this run",
+                    help="The same stake in the passive benchmark over the same window.")
 
     # curve for this run and the benchmark, both rebased to the window start
     def _curve(v, t, m):
