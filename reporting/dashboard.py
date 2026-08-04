@@ -192,6 +192,9 @@ board = data.scoreboard()      # full-sample metrics, used for the Deflated Shar
 CURVES = load_curves()
 ALL_UNIVERSES = sorted(CURVES.universe.unique())
 LIVE_UNIVERSES = set(CURVES.loc[CURVES.source == "live", "universe"].unique())
+# universes with enough history to be split into decades
+LONG_HISTORY = [u for u in ALL_UNIVERSES
+                if len(data.universe_dates(CURVES, u)) > 2500]
 
 
 def humanise(df):
@@ -263,7 +266,11 @@ def confidence_note(n_trials, bench_dsr):
 # ---------------- sidebar ----------------
 with st.sidebar:
     st.title("Bemo allocation")
-    universe = st.selectbox("Universe", ALL_UNIVERSES,
+    def _span_label(u):
+        d = data.universe_dates(CURVES, u)
+        return f"{u}  ({d.min():%Y} to {d.max():%Y})"
+
+    universe = st.selectbox("Universe", ALL_UNIVERSES, format_func=_span_label,
                             index=ALL_UNIVERSES.index("full_14")
                             if "full_14" in ALL_UNIVERSES else 0)
     st.caption(UNIVERSE_NOTE.get(universe, ""))
@@ -277,6 +284,14 @@ with st.sidebar:
                + (f". {periods.NOTE[period]}" if period in periods.NOTE else ""))
     if period != periods.FULL:
         st.caption("Sub-period numbers are slices of one walk-forward, never re-fitted.")
+    # a short universe cannot offer the earlier decades: say so rather than let the
+    # short list look like a bug
+    if len(period_opts) <= 2 and LONG_HISTORY:
+        yrs = (udates.max() - udates.min()).days / 365.25
+        st.info(f"{universe} only holds {yrs:.0f} years of history, so the earlier "
+                f"windows do not exist for it. Switch to "
+                f"**{'** or **'.join(LONG_HISTORY)}** for the full 2003 to 2026 set "
+                "of decades and crises.")
 
 view = st.segmented_control("", ["Single run", "Compare runs", "Full scoreboard",
                                  "Which optimizer won"],
