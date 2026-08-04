@@ -1,5 +1,6 @@
 import numpy as np
-from scipy.stats import skew, kurtosis, norm
+# scipy is imported inside deflated_sharpe, the only function that needs it, so the
+# hosted dashboard can import perf_metrics without pulling a backtest dependency.
 
 TRADING_DAYS = 252
 EULER = 0.5772156649015329
@@ -66,6 +67,7 @@ def benchmark_metrics(equity, bench, rf=None) -> dict:
 def deflated_sharpe(equity, all_annual_sharpes: list, n_trials: int, rf=None) -> float:
     # Bailey and Lopez de Prado: probability the true Sharpe > 0 after correcting
     # for skew, kurtosis and the number of configurations tried. Uses excess returns.
+    from scipy.stats import skew, kurtosis, norm
     _, r = _excess(equity, rf)
     n = len(r)
     sd = r.std(ddof=1)
