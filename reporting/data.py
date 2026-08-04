@@ -70,6 +70,83 @@ def curves(universe: str) -> pd.DataFrame:
     return df.pivot(index="date", columns="run", values="equity") * 1_000_000.0
 
 
+def _lab_available() -> bool:
+    con = _con()
+    try:
+        con.execute("select 1 from robustness_curves limit 1")
+        return True
+    except Exception:
+        return False
+    finally:
+        con.close()
+
+
+def all_curves() -> pd.DataFrame:
+    """Every equity curve from both stores, in one long frame.
+
+    The live backtest carries the weight variants but only spans the funded book's
+    history. The robustness lab carries the long-history universes on house weights.
+    Both are walk-forward curves, so they slice the same way.
+    """
+    con = _con()
+    try:
+        live = con.execute("select universe, variant, tier, method, date, equity "
+                           "from backtest_curves").df()
+        live["source"] = "live"
+        frames = [live]
+        try:
+            lab = con.execute("select universe, tier, method, date, equity "
+                              "from robustness_curves").df()
+            # match the live convention: tier-free runs (benchmark, risk-structure
+            # optimisers) carry no variant either, so run labels stay comparable
+            lab["variant"] = [REF if t == REF else "house" for t in lab.tier]
+            lab["source"] = "lab"
+            frames.append(lab)
+        except Exception:
+            pass
+    finally:
+        con.close()
+    df = pd.concat(frames, ignore_index=True)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+_LONG_UNIVERSES = ("us_long", "us_long_stocks")
+
+
+def risk_free(universe: str) -> pd.Series:
+    """Daily risk-free return for a universe, so Sharpe is an excess-return Sharpe.
+
+    The EUR and US books use their own money-market sleeve. The long-history lab
+    universes use the 13-week T-bill, which is what robustness.py walked them with.
+    Returns an empty series when nothing is available, and the caller then reports a
+    raw-return Sharpe.
+    """
+    from engine.io import CASH_NAME
+    if universe in _LONG_UNIVERSES:
+        p = DB.parent / "robustness_prices.parquet"
+        if not p.exists():
+            return pd.Series(dtype=float)
+        irx = pd.read_parquet(p)["^IRX"].dropna()
+        return irx / 100.0 / 252.0
+    con = _con()
+    try:
+        df = con.execute("select date, ret from returns_eur where sleeve=? order by date",
+                         [CASH_NAME]).df()
+    except Exception:
+        return pd.Series(dtype=float)
+    finally:
+        con.close()
+    if df.empty:
+        return pd.Series(dtype=float)
+    return df.set_index(pd.to_datetime(df["date"]))["ret"]
+
+
+def universe_dates(curves_df: pd.DataFrame, universe: str) -> pd.DatetimeIndex:
+    d = curves_df.loc[curves_df.universe == universe, "date"]
+    return pd.DatetimeIndex(sorted(d.unique()))
+
+
 _REBAL_COLS = {"date": "Date", "sleeve": "Sleeve", "target_w": "Target %", "w_before": "Before %",
                "w_after": "After %", "trade_pct": "Trade %", "trade_eur": "Trade EUR",
                "cost_eur": "Cost EUR", "breached": "Traded"}

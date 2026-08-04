@@ -8,15 +8,16 @@ sub-period number is honest OOS.
 
 Universes:
   eur_book       the live EUR 14-sleeve book (short history, AI sleeve limits it)
-  eur_book_noAI  the same book without the AI sleeve (history back to 2008)
-  us_book_noAI   the US-proxy book without AI (2008+)
+  eur_book_noAI  the same book without the AI sleeve
+  us_book_noAI   the US-proxy book without AI
   us_long        long-history US proxies (index mutual funds, gold futures,
-                 QQQ standing in for the thematic sleeve) back to ~2000
+                 QQQ standing in for the thematic sleeve), out-of-sample from 2003
   us_long_stocks us_long with the thematic sleeve as an equal-weight mega-cap
                  stock basket (AAPL, MSFT, AMZN): the ETF + single-stock mix
 
-Methods per tier: the house mean-CVaR engine (full caps), the strategic weights,
-and the 60/40 benchmark. Run with .venv/bin/python -m backtest.robustness
+Methods per tier: the house mean-CVaR engine and the other tier-dependent optimisers,
+the strategic weights, the tier-free risk-structure optimisers, and the 60/40
+benchmark. Run with .venv/bin/python -m backtest.robustness
 """
 import os
 import sys
@@ -43,6 +44,14 @@ US_DB = DB.parent / "bemo_us.duckdb"
 COST_BPS = 10.0
 TOL_BAND = 0.05
 ENGINE = "mean_cvar"
+
+# methods that depend on the tier and its strategic weights, so they run once per tier
+TIER_METHODS = ["strategic", "mean_cvar", "mean_variance", "max_ret_cvarcap",
+                "trend_tilt", "black_litterman_mom", "mean_cvar_anchored",
+                "vol_target", "regime_breaker", "dual_momentum"]
+# risk-structure optimisers: they ignore the tier, so one run per universe
+REF_METHODS = ["risk_parity", "hrp", "min_variance", "max_sharpe",
+               "max_diversification", "equal_weight", "inverse_vol"]
 
 # long-history US proxies per sleeve key (lists are equal-weight baskets)
 LONG_PROXY = {
@@ -123,7 +132,9 @@ def make_target(method, tier, cfg):
     if method == "strategic":
         w = pd.Series(cfg.tier_w[tier], index=cfg.funded)
         return lambda r: w
-    return lambda r: allocate(r, tier, cfg, ENGINE, False, "full")
+    # reference optimisers ignore the tier; allocate() resolves the rest by name
+    t = TIERS[0] if method in REF_METHODS else tier
+    return lambda r: allocate(r, t, cfg, method, False, "full")
 
 
 def run_universe(uname, cfg, ret, rows, curves) -> None:
@@ -136,10 +147,16 @@ def run_universe(uname, cfg, ret, rows, curves) -> None:
     print(f"[{uname}] data {ret.index[0].date()} .. {ret.index[-1].date()}, "
           f"OOS from {oos.date()}")
     eqs = {}
-    for method in [BENCH_NAME, "strategic", ENGINE]:
-        for tier in (["-"] if method == BENCH_NAME else TIERS):
+    for method in [BENCH_NAME] + TIER_METHODS + REF_METHODS:
+        # bench and the risk-structure optimisers do not depend on the tier
+        tiers = ["-"] if method in [BENCH_NAME] + REF_METHODS else TIERS
+        for tier in tiers:
             fn = make_target(method, tier, cfg)
-            eq, tos, *_ = walk_forward(ret, fn, min_hist, COST_BPS, TOL_BAND)
+            try:
+                eq, tos, *_ = walk_forward(ret, fn, min_hist, COST_BPS, TOL_BAND)
+            except Exception as e:                  # a solver can fail on a short universe
+                print(f"  {method}/{tier}: skipped ({type(e).__name__})")
+                continue
             eqs[(tier, method)] = eq
             years = len(eq) / TRADING_DAYS
             m = perf_metrics(eq, rf)

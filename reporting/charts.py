@@ -49,6 +49,50 @@ def compare_chart(wide, dashed: str = None, height: int = 440):
             .properties(height=height).interactive())
 
 
+def period_heatmap(long, value_col, period_order, method_order, fmt=".1f",
+                   centre_zero=True, height=None, title=None):
+    """Method by period grid. One cell per (method, period), coloured by value_col.
+
+    long needs columns: method_label, period, <value_col>, plus 'tip' for the tooltip.
+    """
+    scheme = "redyellowgreen" if centre_zero else "viridis"
+    vals = long[value_col].dropna()
+    lim = float(max(abs(vals.min()), abs(vals.max()))) if len(vals) else 1.0
+    scale = (alt.Scale(scheme=scheme, domain=[-lim, lim])
+             if centre_zero else alt.Scale(scheme=scheme))
+    h = height or max(300, 30 * long.method_label.nunique())
+    base = alt.Chart(long).encode(
+        x=alt.X("period:N", title=None, sort=period_order,
+                axis=alt.Axis(labelAngle=-35, labelFontSize=11)),
+        y=alt.Y("method_label:N", title=None, sort=method_order,
+                axis=alt.Axis(labelFontSize=11, labelLimit=0)))
+    cells = base.mark_rect(stroke="white", strokeWidth=1.5).encode(
+        color=alt.Color(f"{value_col}:Q", scale=scale,
+                        legend=alt.Legend(title=title, orient="right")),
+        tooltip=[alt.Tooltip("method_label:N", title="Method"),
+                 alt.Tooltip("period:N", title="Period"),
+                 alt.Tooltip("tip:N", title="Result")])
+    text = base.mark_text(fontSize=10.5, fontWeight=600).encode(
+        text=alt.Text(f"{value_col}:Q", format=fmt),
+        color=alt.condition(f"abs(datum.{value_col}) > {lim * 0.55}",
+                            alt.value("white"), alt.value("#1a1a1a")))
+    return (cells + text).properties(height=h)
+
+
+def winners_chart(df, height=None):
+    """Horizontal bar of how many periods each method won, best at the top."""
+    h = height or max(220, 24 * len(df))
+    return (alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#2b6cb0")
+            .encode(x=alt.X("wins:Q", title="periods won",
+                            axis=alt.Axis(tickMinStep=1)),
+                    y=alt.Y("method_label:N", title=None, sort="-x",
+                            axis=alt.Axis(labelFontSize=11, labelLimit=0)),
+                    tooltip=[alt.Tooltip("method_label:N", title="Method"),
+                             alt.Tooltip("wins:Q", title="Periods won"),
+                             alt.Tooltip("periods:N", title="Which")])
+            .properties(height=h))
+
+
 def draw_equity_drawdown(ax_eq, ax_dd, value, bench=None) -> None:
     d = value["date"]
     ax_eq.plot(d, value["value_eur"], color=EQUITY_LINE, lw=1.4, label="This run", zorder=3)

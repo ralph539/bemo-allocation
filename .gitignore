@@ -22,3 +22,13 @@ data/bemo.duckdb
 deploy_treasury_demo/
 treasury_dashboard/
 rami_charts/
+
+# personal trading book (IBKR account, live positions): never in a public repo
+trader/
+
+# local working files
+.claude/
+*.zip
+SPAF.pdf
+data/quality_report.txt
+rebalance_log_*.csv
