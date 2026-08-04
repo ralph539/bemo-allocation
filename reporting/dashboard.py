@@ -195,6 +195,8 @@ LIVE_UNIVERSES = set(CURVES.loc[CURVES.source == "live", "universe"].unique())
 # universes with enough history to be split into decades
 LONG_HISTORY = [u for u in ALL_UNIVERSES
                 if len(data.universe_dates(CURVES, u)) > 2500]
+# the lab re-runs two books the live backtest already covers in full detail
+LIVE_EQUIV = {"eur_book": "full_14", "eur_book_noAI": "no_AI_13"}
 
 
 def humanise(df):
@@ -375,20 +377,35 @@ if view == "Single run":
     st.caption("Both lines restart at EUR 1,000,000 on the first day of the window, so the "
                "comparison is like for like.")
 
-    if is_live and is_full:
+    if is_live:
         try:
             run = data.load_run(universe, tier, method, variant)
-            rebal, attrib = run["rebal"], run["attrib"]
+            all_rebal, attrib = run["rebal"], run["attrib"]
+            # the ledger carries dates, so holdings and trades follow the window
+            rebal = all_rebal[(all_rebal["date"] >= p_start)
+                              & (all_rebal["date"] <= p_end)]
+            if rebal.empty:
+                rebal = all_rebal
+
             c = st.columns(2)
-            c[0].caption("Latest allocation, coloured by bucket")
+            when = "at the end of the window" if not is_full else "on the last rebalance"
+            c[0].caption(f"Allocation {when}, coloured by bucket")
             c[0].pyplot(charts.donut_fig(data.latest_weights(rebal), data.bucket_map(),
                                          figsize=(6.6, 6.0), scale=1.8))
-            c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
-            c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
+            if is_full:
+                c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
+                c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
+            else:
+                c[1].caption("Profit and loss by sleeve")
+                c[1].info("Sleeve attribution is stored for the whole run, not per day, "
+                          "so it cannot be cut to a window. Switch Period to full "
+                          "history to see it.")
 
             hold = data.holdings(rebal)
-            st.caption(f"Portfolio holdings on the last rebalance ({len(hold)} sleeves, "
-                       f"weights sum to {hold['Weight %'].sum():.1f}%).")
+            last_date = pd.to_datetime(rebal["date"]).max()
+            st.caption(f"Portfolio holdings on {last_date:%d %b %Y}, the last rebalance "
+                       f"in this window ({len(hold)} sleeves, weights sum to "
+                       f"{hold['Weight %'].sum():.1f}%).")
             bcol = charts.BUCKET_COLORS
             styled = (hold.style
                       .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; "
@@ -398,7 +415,9 @@ if view == "Single run":
                          column_config={"Weight %": st.column_config.ProgressColumn(
                              format="%.2f%%", min_value=0.0,
                              max_value=float(hold["Weight %"].max()))})
-            with st.expander("Trades: every date, every sleeve"):
+            n_tr = int(rebal[rebal["breached"]]["date"].nunique())
+            with st.expander(f"Trades in this window: {n_tr} of "
+                             f"{rebal['date'].nunique()} monthly checks"):
                 st.pyplot(charts.turnover_fig(rebal))
                 only_traded = st.checkbox("Only dates where it traded", value=False)
                 rb = rebal[rebal["breached"]] if only_traded else rebal
@@ -408,13 +427,13 @@ if view == "Single run":
                                    f"rebalance_{variant}_{tier}_{method}_{universe}.csv",
                                    "text/csv")
         except KeyError:
-            pass
-    elif is_live:
-        st.info("Holdings, attribution and the trade ledger are shown for the full history. "
-                "Switch Period to full history to see them.")
+            st.info("That exact combination has no stored ledger.")
     else:
+        twin = LIVE_EQUIV.get(universe)
         st.info(f"{universe} is a robustness-lab universe: it stores equity curves only, "
-                "so there is no trade ledger or attribution for it.")
+                "so it carries no holdings, attribution or trade ledger."
+                + (f" For the same book with the full detail, switch Universe to "
+                   f"**{twin}**." if twin else ""))
 
 # ---------------- compare ----------------
 elif view == "Compare runs":
