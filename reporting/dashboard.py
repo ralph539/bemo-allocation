@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from backtest.metrics import benchmark_metrics
 from reporting import data, charts, periods
 
 st.set_page_config(page_title="Bemo allocation backtest", layout="wide")
@@ -301,8 +302,8 @@ with st.sidebar:
                 f"**{'** or **'.join(LONG_HISTORY)}** for the full 2003 to 2026 set "
                 "of decades and crises.")
 
-view = st.segmented_control("", ["Single run", "Compare runs", "Full scoreboard",
-                                 "Which optimizer won"],
+view = st.segmented_control("View", ["Single run", "Compare runs", "Full scoreboard",
+                                     "Which optimizer won"],
                             default="Single run", label_visibility="collapsed") or "Single run"
 
 pboard = period_board(universe, period)
@@ -328,67 +329,143 @@ if view == "Single run":
                 st.caption(f"This config was only run on the {variants[0]} weights, "
                            "so there is nothing else to pick.")
 
-    # Full history renders exactly as the original dashboard did: the same metrics
-    # from the stored run and the same equity-plus-drawdown figure. A sub-period
-    # falls through to the windowed view, which is computed from the curve.
-    if is_full and is_live:
+    # One rendering path for every universe and every window: the figure, the metric
+    # block and the tables are built from the walk-forward curve, so a sub-period looks
+    # exactly like the full run. The stored ledger adds holdings and trades where it exists.
+    def _curve(v, t, m):
+        g = CURVES[(CURVES.universe == universe) & (CURVES.variant == v)
+                   & (CURVES.tier == t) & (CURVES.method == m)]
+        if g.empty:
+            return None
+        eq = g.set_index("date")["equity"].sort_index()
+        s = periods.slice_curve(eq, period)
+        return None if s.empty else s
+
+    mine = _curve(variant, tier, method)
+    bench_eq = _curve(REF, REF, BENCH)
+    if mine is None:
+        st.error(f"No data for {NICE.get(method, method)} on {variant} weights, {tier} "
+                 f"tier, {universe}, over {periods.label(period, udates)}.")
+        st.stop()
+
+    row = pboard[(pboard.variant == variant) & (pboard.tier == tier)
+                 & (pboard.method == method)]
+    row = row.iloc[0] if len(row) else None
+    rf_u = load_rf(universe)
+    rf_u = None if rf_u is None or rf_u.empty else rf_u
+    bm = (benchmark_metrics(mine, bench_eq, rf_u) if bench_eq is not None
+          else {"beta": float("nan"), "alpha": float("nan")})
+
+    START = 1_000_000.0
+    end_val = float(mine.iloc[-1]) * START
+    profit = end_val - START
+
+    st.title(NICE.get(method, method) if variant == REF
+             else f"{tier.title()} tier, {NICE.get(method, method)}")
+    st.caption(f"{universe}{'' if variant == REF else f', {variant} weights'}. "
+               f"{periods.label(period, udates)}: {p_start:%d %b %Y} to {p_end:%d %b %Y} "
+               f"({len(mine)} trading days).")
+    st.caption(DESC.get(method, ""))
+    # CAGR and volatility are blanked below this length; Sharpe and alpha are annualised
+    # too, so say plainly that they are not rates here rather than let a 38-day Sharpe
+    # of 3.9 read as an edge
+    if len(mine) < periods.MIN_ANNUALISE:
+        st.warning(f"This window is {len(mine)} trading days. CAGR and volatility are "
+                   "not shown at all, and Sharpe and alpha are annualised from too few "
+                   "days to be read as yearly rates. Compare total return and drawdown "
+                   "here, not the ratios.")
+
+    r = st.columns(4)
+    r[0].metric("Start", data.fmt_eur(START))
+    r[1].metric("End", data.fmt_eur(end_val),
+                delta=f"{'+' if profit >= 0 else '-'}{data.fmt_eur(abs(profit))} "
+                      f"({(end_val / START - 1) * 100:+.1f}%)")
+    short = row is None or pd.isna(row["ann_return"])
+    r[2].metric("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
+                help="Yearly compounded growth rate. Not shown on a window under 120 "
+                     "trading days, where annualising is meaningless.")
+    r[3].metric("Sharpe", f"{row['sharpe']:.2f}" if row is not None else "n/a",
+                help="Return above cash per unit of volatility.")
+
+    r = st.columns(4)
+    r[0].metric("Volatility", "n/a" if row is None or pd.isna(row["ann_vol"])
+                else data.fmt_pct(row["ann_vol"]))
+    r[1].metric("Max drawdown", data.fmt_pct(float((mine / mine.cummax() - 1).min())),
+                help="Worst fall from a peak inside this window.")
+    r[2].metric("Beta", "n/a" if pd.isna(bm["beta"]) else f"{bm['beta']:.2f}",
+                help="Share of the benchmark's risk carried.")
+    r[3].metric("Alpha", "n/a" if pd.isna(bm["alpha"]) else data.fmt_pct(bm["alpha"]),
+                help="Return that market exposure cannot explain.")
+
+    r = st.columns(4)
+    r[0].metric("CVaR 95", data.fmt_pct(row["cvar95"]) if row is not None else "n/a",
+                help="Average of the worst 5% of days.")
+    if bench_eq is not None and method != BENCH:
+        b_end = float(bench_eq.iloc[-1]) * START
+        gap = end_val - b_end
+        # the sign has to lead the string or Streamlit paints a loss green
+        r[1].metric("60/40 would give", data.fmt_eur(b_end),
+                    delta=f"{'+' if gap >= 0 else '-'}{data.fmt_eur(abs(gap))} for this run",
+                    help="The same stake in the passive benchmark, same window.")
+        # a percentage-point gap, not a return: over 20 years the two totals differ by
+        # more than 100 points and calling that a percentage reads as nonsense
+        r[2].metric("vs 60/40", "n/a" if row is None
+                    else f"{row['excess_return'] * 100:+.1f} pts",
+                    help="Total return minus the benchmark's, in percentage points, "
+                         "over this window.")
+
+    # the ledger only exists for the funded book, and only there can trades be counted
+    rebal = attrib = None
+    if is_live:
         try:
             run = data.load_run(universe, tier, method, variant)
+            all_rebal, attrib = run["rebal"], run["attrib"]
+            rebal = all_rebal[(all_rebal["date"] >= p_start) & (all_rebal["date"] <= p_end)]
+            if rebal.empty:
+                rebal = all_rebal
+            traded = int(rebal[rebal["breached"]]["date"].nunique())
+            cost = rebal["cost_eur"].sum()
+            r[3].metric("Turnover", f"{run['metrics']['turnover']:.2f}x",
+                        help="How much of the book it trades a year, over the full run.")
+            st.caption(f"Traded on {traded} of {rebal['date'].nunique()} monthly checks "
+                       f"in this window. Total cost {data.fmt_eur(cost)}.")
         except KeyError:
-            st.error(f"That combination was never run: {NICE.get(method, method)} on {variant} weights, "
-                     f"{tier} tier, {universe}. Pick another.")
-            st.stop()
-        m, value, rebal, attrib = run["metrics"], run["value"], run["rebal"], run["attrib"]
-        start, end = value["value_eur"].iloc[0], value["value_eur"].iloc[-1]
-        cost = rebal["cost_eur"].sum()
+            pass
 
-        st.title(NICE.get(method, method) if variant == REF
-                 else f"{tier.title()} tier, {NICE.get(method, method)}")
-        st.caption(f"{universe}{'' if variant == REF else f', {variant} weights'}. "
-                   f"{value['date'].iloc[0].date()} to {value['date'].iloc[-1].date()}.")
-        st.caption(DESC.get(method, ""))
+    def _value_frame(eq):
+        v = eq * START
+        return pd.DataFrame({"date": v.index, "value_eur": v.values,
+                             "drawdown": (v / v.cummax() - 1).values})
 
-        r = st.columns(4)
-        r[0].metric("Start", data.fmt_eur(start))
-        r[1].metric("End", data.fmt_eur(end))
-        r[2].metric("CAGR", data.fmt_pct(m["ann_return"]), help="Yearly compounded growth rate.")
-        r[3].metric("Sharpe", f"{m['sharpe']:.2f}", help="Return above cash per unit of volatility.")
-        r = st.columns(4)
-        r[0].metric("Volatility", data.fmt_pct(m["ann_vol"]))
-        r[1].metric("Max drawdown", data.fmt_pct(m["max_dd"]), help="Worst fall from a peak.")
-        r[2].metric("Beta", f"{m['beta']:.2f}", help="Share of the benchmark's risk carried.")
-        r[3].metric("Alpha", data.fmt_pct(m["alpha"]), help="Return that market exposure cannot explain.")
-        if "s2022_ret" in m.index:
-            r = st.columns(4)
-            r[0].metric("2022 return", data.fmt_pct(m["s2022_ret"]),
-                        help="Return in the 2022 stress year, when stocks and bonds both fell.")
-            r[1].metric("2022 drawdown", data.fmt_pct(m["s2022_dd"]))
-            r[2].metric("CVaR 95", data.fmt_pct(m["cvar95"]), help="Average of the worst 5% of days.")
-            r[3].metric("Turnover", f"{m['turnover']:.2f}x", help="How much of the book it trades a year.")
+    st.pyplot(charts.equity_drawdown_fig(
+        _value_frame(mine),
+        None if method == BENCH or bench_eq is None else _value_frame(bench_eq)))
+    if method != BENCH and bench_eq is not None:
+        st.caption("Dashed line is the passive 60/40 benchmark, on both panels. Both "
+                   "start from the same stake on the first day of the window.")
 
-        traded = int(rebal[rebal["breached"]]["date"].nunique())
-        st.caption(f"Traded on {traded} of {rebal['date'].nunique()} monthly checks. "
-                   f"Turnover {m['turnover']:.2f}x a year. Total cost {data.fmt_eur(cost)}.")
-
-        bench_curve = None if method == BENCH else data.load_run(universe, REF, BENCH, REF)["value"]
-        st.pyplot(charts.equity_drawdown_fig(value, bench_curve))
-        if bench_curve is not None:
-            st.caption("Dashed line is the passive 60/40 benchmark, on both panels.")
+    if rebal is not None:
         c = st.columns(2)
-        c[0].caption("Latest allocation, coloured by bucket")
+        c[0].caption("Allocation at the end of the window, coloured by bucket")
         c[0].pyplot(charts.donut_fig(data.latest_weights(rebal), data.bucket_map(),
                                      figsize=(6.6, 6.0), scale=1.8))
-        c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
-        c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
+        if is_full:
+            c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
+            c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
+        else:
+            c[1].caption(f"Profit and loss by sleeve ({data.CCY})")
+            c[1].info("Sleeve attribution is stored for the whole run, not per day, so it "
+                      "cannot be cut to a window. Switch Period to full history for it.")
 
         hold = data.holdings(rebal)
-        st.caption(f"Portfolio holdings on the last rebalance ({len(hold)} sleeves, "
-                   f"weights sum to {hold['Weight %'].sum():.1f}%). "
-                   "Text colour matches the donut bucket.")
+        last_date = pd.to_datetime(rebal["date"]).max()
+        st.caption(f"Portfolio holdings on {last_date:%d %b %Y}, the last rebalance in "
+                   f"this window ({len(hold)} sleeves, weights sum to "
+                   f"{hold['Weight %'].sum():.1f}%). Text colour matches the donut bucket.")
         bcol = charts.BUCKET_COLORS
         styled = (hold.style
-                  .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; font-weight: 600"] * len(r),
-                         axis=1)
+                  .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; "
+                                    "font-weight: 600"] * len(r), axis=1)
                   .format({"Weight %": "{:.2f}"}))
         st.dataframe(styled, use_container_width=True, hide_index=True,
                      column_config={"Weight %": st.column_config.ProgressColumn(
@@ -399,7 +476,8 @@ if view == "Single run":
             st.pyplot(charts.turnover_fig(rebal))
             only_traded = st.checkbox("Only dates where it traded", value=False)
             rb = rebal[rebal["breached"]] if only_traded else rebal
-            st.dataframe(data.format_rebal(rb), use_container_width=True, hide_index=True, height=320,
+            st.dataframe(data.format_rebal(rb), use_container_width=True,
+                         hide_index=True, height=320,
                          column_config={
                              "Date": st.column_config.DateColumn(format="YYYY-MM-DD"),
                              "Target %": st.column_config.NumberColumn(format="%.2f"),
@@ -410,132 +488,14 @@ if view == "Single run":
                              "Cost EUR": st.column_config.NumberColumn(format="%.0f"),
                              "Traded": st.column_config.CheckboxColumn()})
             st.download_button("Download CSV", rebal.to_csv(index=False),
-                               f"rebalance_{variant}_{tier}_{method}_{universe}.csv", "text/csv")
-
-
+                               f"rebalance_{variant}_{tier}_{method}_{universe}.csv",
+                               "text/csv")
     else:
-        row = pboard[(pboard.variant == variant) & (pboard.tier == tier)
-                     & (pboard.method == method)]
-        if row.empty:
-            st.error(f"No data for {NICE.get(method, method)} on {variant} weights, {tier} tier, "
-                     f"{universe}, over {period}. Pick another combination.")
-            st.stop()
-        row = row.iloc[0]
-
-        st.title(NICE.get(method, method) if variant == REF
-                 else f"{tier.title()} tier, {NICE.get(method, method)}")
-        st.caption(f"{universe}{'' if variant == REF else f', {variant} weights'}. "
-                   f"{periods.label(period, udates)}: {p_start:%d %b %Y} to {p_end:%d %b %Y} "
-                   f"({int(row['n_days'])} trading days).")
-        st.caption(DESC.get(method, ""))
-
-        bench_row = pboard[pboard.method == BENCH]
-        START = 1_000_000.0
-        end_val = START * (1 + row["ret"])
-        profit = end_val - START
-
-        r = st.columns(4)
-        r[0].metric("Start", data.fmt_eur(START),
-                    help="Every window starts from the same stake, so windows compare.")
-        r[1].metric("End", data.fmt_eur(end_val),
-                    delta=f"{data.fmt_eur(profit)} ({row['ret'] * 100:+.1f}%)",
-                    help="What the stake is worth at the end of the window.")
-        short = pd.isna(row["ann_return"])
-        r[2].metric("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
-                    help="Annualised growth rate. Not shown on a window under 120 trading "
-                         "days: annualising a two-month move produces a number that looks "
-                         "like a rate and is not one.")
-        r[3].metric("Sharpe", f"{row['sharpe']:.2f}",
-                    help="Return above cash per unit of volatility.")
-
-        r = st.columns(4)
-        r[0].metric("Volatility", "n/a" if pd.isna(row["ann_vol"])
-                    else data.fmt_pct(row["ann_vol"]))
-        r[1].metric("Max drawdown", data.fmt_pct(row["max_dd"]), help="Worst fall from a peak.")
-        r[2].metric("CVaR 95", data.fmt_pct(row["cvar95"]), help="Average of the worst 5% of days.")
-        if len(bench_row):
-            b_end = START * (1 + bench_row.iloc[0]["ret"])
-            r[3].metric("60/40 would give", data.fmt_eur(b_end),
-                        delta=f"{data.fmt_eur(end_val - b_end)} vs this run",
-                        help="The same stake in the passive benchmark over the same window.")
-
-        # curve for this run and the benchmark, both rebased to the window start
-        def _curve(v, t, m):
-            g = CURVES[(CURVES.universe == universe) & (CURVES.variant == v)
-                       & (CURVES.tier == t) & (CURVES.method == m)]
-            if g.empty:
-                return None
-            eq = g.set_index("date")["equity"].sort_index()
-            s = periods.slice_curve(eq, period)
-            return None if s.empty else s * 1_000_000.0
-
-        mine = _curve(variant, tier, method)
-        bcur = None if method == BENCH else _curve(REF, REF, BENCH)
-        wide = pd.DataFrame({NICE.get(method, method): mine})
-        if bcur is not None:
-            wide[NICE[BENCH]] = bcur
-        st.altair_chart(charts.compare_chart(wide.dropna(how="all"), dashed=NICE[BENCH]),
-                        use_container_width=True)
-        st.caption("Both lines restart at EUR 1,000,000 on the first day of the window, so the "
-                   "comparison is like for like.")
-
-        if is_live:
-            try:
-                run = data.load_run(universe, tier, method, variant)
-                all_rebal, attrib = run["rebal"], run["attrib"]
-                # the ledger carries dates, so holdings and trades follow the window
-                rebal = all_rebal[(all_rebal["date"] >= p_start)
-                                  & (all_rebal["date"] <= p_end)]
-                if rebal.empty:
-                    rebal = all_rebal
-
-                c = st.columns(2)
-                when = "at the end of the window" if not is_full else "on the last rebalance"
-                c[0].caption(f"Allocation {when}, coloured by bucket")
-                c[0].pyplot(charts.donut_fig(data.latest_weights(rebal), data.bucket_map(),
-                                             figsize=(6.6, 6.0), scale=1.8))
-                if is_full:
-                    c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
-                    c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
-                else:
-                    c[1].caption("Profit and loss by sleeve")
-                    c[1].info("Sleeve attribution is stored for the whole run, not per day, "
-                              "so it cannot be cut to a window. Switch Period to full "
-                              "history to see it.")
-
-                hold = data.holdings(rebal)
-                last_date = pd.to_datetime(rebal["date"]).max()
-                st.caption(f"Portfolio holdings on {last_date:%d %b %Y}, the last rebalance "
-                           f"in this window ({len(hold)} sleeves, weights sum to "
-                           f"{hold['Weight %'].sum():.1f}%).")
-                bcol = charts.BUCKET_COLORS
-                styled = (hold.style
-                          .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; "
-                                            "font-weight: 600"] * len(r), axis=1)
-                          .format({"Weight %": "{:.2f}"}))
-                st.dataframe(styled, use_container_width=True, hide_index=True,
-                             column_config={"Weight %": st.column_config.ProgressColumn(
-                                 format="%.2f%%", min_value=0.0,
-                                 max_value=float(hold["Weight %"].max()))})
-                n_tr = int(rebal[rebal["breached"]]["date"].nunique())
-                with st.expander(f"Trades in this window: {n_tr} of "
-                                 f"{rebal['date'].nunique()} monthly checks"):
-                    st.pyplot(charts.turnover_fig(rebal))
-                    only_traded = st.checkbox("Only dates where it traded", value=False)
-                    rb = rebal[rebal["breached"]] if only_traded else rebal
-                    st.dataframe(data.format_rebal(rb), use_container_width=True,
-                                 hide_index=True, height=320)
-                    st.download_button("Download CSV", rebal.to_csv(index=False),
-                                       f"rebalance_{variant}_{tier}_{method}_{universe}.csv",
-                                       "text/csv")
-            except KeyError:
-                st.info("That exact combination has no stored ledger.")
-        else:
-            twin = LIVE_EQUIV.get(universe)
-            st.info(f"{universe} is a robustness-lab universe: it stores equity curves only, "
-                    "so it carries no holdings, attribution or trade ledger."
-                    + (f" For the same book with the full detail, switch Universe to "
-                       f"**{twin}**." if twin else ""))
+        twin = LIVE_EQUIV.get(universe)
+        st.info(f"{universe} stores equity curves only, so it carries no holdings or "
+                "trade ledger."
+                + (f" For the same book with the full detail, switch Universe to "
+                   f"**{twin}**." if twin else ""))
 
 # ---------------- compare ----------------
 elif view == "Compare runs":
@@ -592,8 +552,9 @@ elif view == "Compare runs":
         if wide.empty:
             st.info("Those runs have no data in this window.")
         else:
-            st.altair_chart(charts.compare_chart(wide, dashed=BENCH),
-                            use_container_width=True)
+            st.pyplot(charts.multi_equity_drawdown_fig(wide, dashed=BENCH))
+            st.caption("Same two-panel layout as the single-run page: value on top, "
+                       "drawdown below. The dashed grey line is the 60/40 benchmark.")
             b = pboard[pboard.run.isin(picked)].copy()
             b = b.rename(columns={"ret": "Return %"}).sort_values("sharpe", ascending=False)
             show = b[["run", "Return %", "ann_return", "ann_vol", "sharpe",

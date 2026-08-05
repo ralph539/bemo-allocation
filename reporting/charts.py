@@ -28,27 +28,6 @@ _millions = FuncFormatter(lambda v, _: f"{v/1e6:.2f}M")
 _thousands = FuncFormatter(lambda v, _: f"{v/1e3:.0f}k")
 
 
-def compare_chart(wide, dashed: str = None, height: int = 440):
-    # wide: DatetimeIndex x one column per run. y does not start at zero, or the curves
-    # collapse into a band at the top; labelLimit=0 stops the legend truncating run names.
-    long = wide.reset_index().melt(wide.index.name or "date", var_name="Run", value_name="Value")
-    long = long.rename(columns={long.columns[0]: "Date"})
-    stroke = (alt.condition(alt.datum.Run == dashed, alt.value([6, 4]), alt.value([0]))
-              if dashed else alt.value([0]))
-    return (alt.Chart(long).mark_line(strokeWidth=1.7, clip=True)
-            .encode(x=alt.X("Date:T", title=None),
-                    y=alt.Y("Value:Q", title="Portfolio value (EUR)",
-                            scale=alt.Scale(zero=False, nice=True),
-                            axis=alt.Axis(format=",.0f")),
-                    color=alt.Color("Run:N", title=None,
-                                    legend=alt.Legend(orient="bottom", columns=2, labelLimit=0,
-                                                      symbolStrokeWidth=3)),
-                    strokeDash=stroke,
-                    tooltip=[alt.Tooltip("Date:T"), alt.Tooltip("Run:N"),
-                             alt.Tooltip("Value:Q", format=",.0f", title="EUR")])
-            .properties(height=height).interactive())
-
-
 def period_heatmap(long, value_col, period_order, method_order, fmt=".1f",
                    centre_zero=True, height=None, title=None):
     """Method by period grid. One cell per (method, period), coloured by value_col.
@@ -215,6 +194,38 @@ def equity_drawdown_fig(value, bench=None, figsize=(9, 4.5)):
     fig, (a, b) = plt.subplots(2, 1, figsize=figsize, sharex=True,
                                gridspec_kw={"height_ratios": [3, 1]})
     draw_equity_drawdown(a, b, value, bench)
+    fig.tight_layout()
+    return fig
+
+
+def multi_equity_drawdown_fig(wide, dashed=None, figsize=(9, 4.7)):
+    """The same two-panel layout as a single run, with one line per run.
+
+    wide is a date-indexed frame of portfolio values, one column per run. The column
+    named in dashed is drawn as a grey dashed line so the benchmark reads as a
+    reference rather than as another candidate.
+    """
+    fig, (a, b) = plt.subplots(2, 1, figsize=figsize, sharex=True,
+                               gridspec_kw={"height_ratios": [3, 1]})
+    others = [c for c in wide.columns if c != dashed]
+    palette = plt.get_cmap("tab10").colors
+    for i, run in enumerate(others):
+        s = wide[run].dropna()
+        col = palette[i % len(palette)]
+        a.plot(s.index, s.values, color=col, lw=1.3, label=run, zorder=3)
+        b.plot(s.index, (s / s.cummax() - 1).values * 100, color=col, lw=0.9, zorder=3)
+    if dashed in wide.columns:
+        s = wide[dashed].dropna()
+        a.plot(s.index, s.values, color=BAR, lw=1.1, ls="--", label=dashed, zorder=4)
+        b.plot(s.index, (s / s.cummax() - 1).values * 100, color=BAR, lw=0.9, ls="--",
+               zorder=4)
+    a.set_ylabel(f"Portfolio value {CCY}")
+    a.yaxis.set_major_formatter(_millions)
+    a.grid(alpha=0.25)
+    a.legend(loc="upper left", fontsize=7.5, frameon=False,
+             ncol=2 if len(wide.columns) > 4 else 1)
+    b.set_ylabel("Drawdown %")
+    b.grid(alpha=0.25)
     fig.tight_layout()
     return fig
 
