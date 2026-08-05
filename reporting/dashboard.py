@@ -11,6 +11,9 @@ from backtest.metrics import benchmark_metrics
 from reporting import data, charts, periods
 
 st.set_page_config(page_title="Bemo allocation backtest", layout="wide")
+# the default sidebar cuts the universe names off mid-word
+st.markdown("<style>[data-testid='stSidebar']{min-width:360px;max-width:360px}</style>",
+            unsafe_allow_html=True)
 
 REF = "-"
 BENCH = "bench_60_40"
@@ -119,14 +122,12 @@ SHORT = {
     "inverse_vol": "Inverse vol", BENCH: "60/40 benchmark",
 }
 
-UNIVERSE_NOTE = {
-    "full_14": "The funded book the bank actually holds, all five weight variants and "
-               "every method. History starts in 2022, limited by the AI sleeve.",
-    "us_long": "Long-history US proxies (index mutual funds, gold futures, QQQ for the "
-               "thematic sleeve). The only universes that reach back to 2003.",
-    "us_long_stocks": "As us_long, with the thematic sleeve as an equal-weight AAPL, MSFT, "
-                      "AMZN basket. The ETF-plus-single-stock mix.",
-}
+UNIVERSE_HELP_ALL = (
+    "**Real book** is the 14 sleeves the bank actually holds. It starts in 2022 because "
+    "the AI sleeve has no history before that.\n\n"
+    "**Long test** rebuilds the same 14 sleeves from US proxies that go back to 2003, so "
+    "the engine can be checked across more market cycles. The two versions differ only in "
+    "what stands in for the AI sleeve: QQQ, or an equal-weight AAPL, MSFT and AMZN basket.")
 
 COLS = {"variant": "Variant", "tier": "Tier", "method": "Method", "ann_return": "CAGR %",
         "ann_vol": "Vol %", "sharpe": "Sharpe", "dsr": "Confidence", "beats_bench": "Beats 60/40",
@@ -192,9 +193,9 @@ CURVES = load_curves()
 # re-runs were diagnostics; showing all seven made the picker unreadable.
 SHOW_UNIVERSES = ["full_14", "us_long", "us_long_stocks"]
 UNIVERSE_NAME = {
-    "full_14": "Funded book, 14 sleeves (2022 on)",
-    "us_long": "Long history, QQQ as the AI sleeve (2003 on)",
-    "us_long_stocks": "Long history, mega-cap AI basket (2003 on)",
+    "full_14": "Real book (2022-2026)",
+    "us_long": "Long test, AI = QQQ (2003-2026)",
+    "us_long_stocks": "Long test, AI = mega-caps (2003-2026)",
 }
 ALL_UNIVERSES = [u for u in SHOW_UNIVERSES if u in set(CURVES.universe.unique())] \
     or sorted(CURVES.universe.unique())
@@ -281,26 +282,22 @@ with st.sidebar:
 
     universe = st.selectbox("Universe", ALL_UNIVERSES, format_func=_span_label,
                             index=ALL_UNIVERSES.index("full_14")
-                            if "full_14" in ALL_UNIVERSES else 0)
-    st.caption(UNIVERSE_NOTE.get(universe, ""))
+                            if "full_14" in ALL_UNIVERSES else 0,
+                            help=UNIVERSE_HELP_ALL)
 
     udates = data.universe_dates(CURVES, universe)
     period_opts = periods.available(udates)
     period = st.selectbox("Period", period_opts,
-                          format_func=lambda p: periods.label(p, udates))
+                          format_func=lambda p: periods.label(p, udates),
+                          help="Every number and chart on the page is cut to this window.")
     p_start, p_end = periods.bounds(period, udates)
     st.caption(f"{p_start:%d %b %Y} to {p_end:%d %b %Y}"
                + (f". {periods.NOTE[period]}" if period in periods.NOTE else ""))
-    if period != periods.FULL:
-        st.caption("Sub-period numbers are slices of one walk-forward, never re-fitted.")
     # a short universe cannot offer the earlier decades: say so rather than let the
     # short list look like a bug
     if len(period_opts) <= 2 and LONG_HISTORY:
-        yrs = (udates.max() - udates.min()).days / 365.25
-        st.info(f"{universe} only holds {yrs:.0f} years of history, so the earlier "
-                f"windows do not exist for it. Switch to "
-                f"**{'** or **'.join(LONG_HISTORY)}** for the full 2003 to 2026 set "
-                "of decades and crises.")
+        st.info("Only the long tests reach back to 2003. Pick one above for the "
+                "earlier decades and crises.")
 
 view = st.segmented_control("View", ["Single run", "Compare runs", "Full scoreboard",
                                      "Which optimizer won"],
@@ -316,18 +313,13 @@ if view == "Single run":
     with st.sidebar:
         group = st.radio("Group", list(grps), format_func=str)
         method = st.radio("Config", grps[group], format_func=lambda m: NICE.get(m, m))
-        st.caption(DESC.get(method, ""))
         if method in REF_ONLY:
             variant, tier = REF, REF
-            st.caption("Ignores the tier and the strategic weights.")
         else:
             tiers = [t for t in TIERS if t in available(universe, method, "tier")]
             variants = [v for v in VARIANTS if v in available(universe, method, "variant")]
             tier = st.radio("Tier", tiers) if tiers else REF
             variant = st.radio("Weight variant", variants) if variants else "house"
-            if len(variants) == 1:
-                st.caption(f"This config was only run on the {variants[0]} weights, "
-                           "so there is nothing else to pick.")
 
     # One rendering path for every universe and every window: the figure, the metric
     # block and the tables are built from the walk-forward curve, so a sub-period looks
@@ -362,18 +354,16 @@ if view == "Single run":
 
     st.title(NICE.get(method, method) if variant == REF
              else f"{tier.title()} tier, {NICE.get(method, method)}")
-    st.caption(f"{universe}{'' if variant == REF else f', {variant} weights'}. "
-               f"{periods.label(period, udates)}: {p_start:%d %b %Y} to {p_end:%d %b %Y} "
-               f"({len(mine)} trading days).")
-    st.caption(DESC.get(method, ""))
+    st.subheader(f"{UNIVERSE_NAME.get(universe, universe)}"
+                 f"{'' if variant == REF else f', {variant} weights'}", divider="gray",
+                 help=DESC.get(method, ""))
+    st.caption(f"{p_start:%d %b %Y} to {p_end:%d %b %Y}, {len(mine):,} trading days")
     # CAGR and volatility are blanked below this length; Sharpe and alpha are annualised
     # too, so say plainly that they are not rates here rather than let a 38-day Sharpe
     # of 3.9 read as an edge
     if len(mine) < periods.MIN_ANNUALISE:
-        st.warning(f"This window is {len(mine)} trading days. CAGR and volatility are "
-                   "not shown at all, and Sharpe and alpha are annualised from too few "
-                   "days to be read as yearly rates. Compare total return and drawdown "
-                   "here, not the ratios.")
+        st.warning(f"Only {len(mine)} trading days. Compare total return and drawdown "
+                   "here, not CAGR, Sharpe or alpha.")
 
     r = st.columns(4)
     r[0].metric("Start", data.fmt_eur(START))
@@ -427,8 +417,8 @@ if view == "Single run":
             cost = rebal["cost_eur"].sum()
             r[3].metric("Turnover", f"{run['metrics']['turnover']:.2f}x",
                         help="How much of the book it trades a year, over the full run.")
-            st.caption(f"Traded on {traded} of {rebal['date'].nunique()} monthly checks "
-                       f"in this window. Total cost {data.fmt_eur(cost)}.")
+            st.caption(f"Traded {traded} of {rebal['date'].nunique()} monthly checks, "
+                       f"cost {data.fmt_eur(cost)}")
         except KeyError:
             pass
 
@@ -440,28 +430,22 @@ if view == "Single run":
     st.pyplot(charts.equity_drawdown_fig(
         _value_frame(mine),
         None if method == BENCH or bench_eq is None else _value_frame(bench_eq)))
-    if method != BENCH and bench_eq is not None:
-        st.caption("Dashed line is the passive 60/40 benchmark, on both panels. Both "
-                   "start from the same stake on the first day of the window.")
 
     if rebal is not None:
         c = st.columns(2)
-        c[0].caption("Allocation at the end of the window, coloured by bucket")
+        c[0].markdown("**Allocation**")
         c[0].pyplot(charts.donut_fig(data.latest_weights(rebal), data.bucket_map(),
                                      figsize=(6.6, 6.0), scale=1.8))
         if is_full:
-            c[1].caption(f"Profit and loss by sleeve ({data.CCY}), before trading cost")
+            c[1].markdown(f"**Profit and loss by sleeve ({data.CCY})**")
             c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
         else:
-            c[1].caption(f"Profit and loss by sleeve ({data.CCY})")
-            c[1].info("Sleeve attribution is stored for the whole run, not per day, so it "
-                      "cannot be cut to a window. Switch Period to full history for it.")
+            c[1].markdown(f"**Profit and loss by sleeve ({data.CCY})**")
+            c[1].info("Only available over full history. Switch Period to see it.")
 
         hold = data.holdings(rebal)
         last_date = pd.to_datetime(rebal["date"]).max()
-        st.caption(f"Portfolio holdings on {last_date:%d %b %Y}, the last rebalance in "
-                   f"this window ({len(hold)} sleeves, weights sum to "
-                   f"{hold['Weight %'].sum():.1f}%). Text colour matches the donut bucket.")
+        st.markdown(f"**Holdings on {last_date:%d %b %Y}**")
         bcol = charts.BUCKET_COLORS
         styled = (hold.style
                   .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; "
@@ -492,16 +476,14 @@ if view == "Single run":
                                "text/csv")
     else:
         twin = LIVE_EQUIV.get(universe)
-        st.info(f"{universe} stores equity curves only, so it carries no holdings or "
-                "trade ledger."
-                + (f" For the same book with the full detail, switch Universe to "
-                   f"**{twin}**." if twin else ""))
+        st.info("The long tests store equity curves only, so there are no holdings "
+                "or trades to show. Switch Universe to the real book for those.")
 
 # ---------------- compare ----------------
 elif view == "Compare runs":
     st.title("Compare equity curves")
-    st.caption(f"{universe}, {periods.label(period, udates)}. Every run restarts at "
-               f"EUR 1,000,000 on {p_start:%d %b %Y}.")
+    st.caption(f"{UNIVERSE_NAME.get(universe, universe)}. Every run starts at "
+               f"{data.fmt_eur(1_000_000)} on {p_start:%d %b %Y}")
 
     cur = CURVES[CURVES.universe == universe].copy()
     cur["run"] = [data.run_label(v, t, m) for v, t, m in zip(cur.variant, cur.tier, cur.method)]
@@ -553,8 +535,6 @@ elif view == "Compare runs":
             st.info("Those runs have no data in this window.")
         else:
             st.pyplot(charts.multi_equity_drawdown_fig(wide, dashed=BENCH))
-            st.caption("Same two-panel layout as the single-run page: value on top, "
-                       "drawdown below. The dashed grey line is the 60/40 benchmark.")
             b = pboard[pboard.run.isin(picked)].copy()
             b = b.rename(columns={"ret": "Return %"}).sort_values("sharpe", ascending=False)
             show = b[["run", "Return %", "ann_return", "ann_vol", "sharpe",
@@ -570,7 +550,8 @@ elif view == "Compare runs":
 # ---------------- scoreboard ----------------
 elif view == "Full scoreboard":
     st.title("Full scoreboard")
-    st.caption(f"{universe}, {periods.label(period, udates)}.")
+    st.caption(f"{UNIVERSE_NAME.get(universe, universe)}, "
+               f"{p_start:%d %b %Y} to {p_end:%d %b %Y}")
     if pboard.empty:
         st.info("No runs cover this window.")
         st.stop()
@@ -591,9 +572,7 @@ elif view == "Full scoreboard":
         if len(brow):
             confidence_note(brow.iloc[0].n_trials, brow.iloc[0].dsr)
     elif not is_full:
-        st.caption("Confidence (Deflated Sharpe) is a full-sample statistic and is not shown "
-                   "for a sub-period: a five-year slice cannot carry a multiple-testing "
-                   "correction built over the whole history.")
+        st.caption("Confidence is a full-history number, so it is not shown on a window.")
 
     all_groups = list(groups_for(universe))
     f = st.columns([2.4, 1.1, 1.2])
@@ -629,16 +608,15 @@ elif view == "Full scoreboard":
 # ---------------- which optimizer won ----------------
 else:
     st.title("Which optimizer won, and when")
-    st.caption("Every method scored over every window it has data for. Each cell is a "
-               "slice of that method's single walk-forward curve, so the weights were "
-               "never re-fitted to the window being judged. This view spans all windows "
-               "at once, so the sidebar Period does not apply here.")
+    st.caption("Every method, every window. This view covers all windows at once, so "
+               "the sidebar Period does not apply.")
 
     c = st.columns([1.3, 1, 1.3, 1.1])
     uni = c[0].selectbox("Universe", ALL_UNIVERSES,
+                         format_func=lambda u: UNIVERSE_NAME.get(u, u),
                          index=ALL_UNIVERSES.index(universe),
-                         help="Starts from the sidebar universe. Only us_long and "
-                              "us_long_stocks reach back far enough to compare decades.")
+                         help="Only the long tests reach back far enough to compare "
+                              "decades.")
     tier_c = c[1].selectbox("Tier", TIERS, index=1)
     metric = c[2].selectbox("Rank by", ["Excess return vs 60/40", "Total return",
                                         "Sharpe", "Max drawdown"])
@@ -650,14 +628,13 @@ else:
                                     "one row per method.")
     if len(data.universe_dates(CURVES, uni)) < 2500:
         d0 = data.universe_dates(CURVES, uni)
-        st.info(f"{uni} only spans {d0.min():%Y} to {d0.max():%Y}, so there are few "
-                "windows to compare. Switch to us_long or us_long_stocks above to see "
-                "the full 2003 to 2026 picture.")
+        st.info(f"This one only spans {d0.min():%Y} to {d0.max():%Y}, so there are few "
+                "windows. Pick a long test above for the full 2003 to 2026 picture.")
 
     udates_c = data.universe_dates(CURVES, uni)
     per_list = [p for p in periods.available(udates_c) if p != periods.FULL]
     if not per_list:
-        st.info(f"{uni} does not span enough history to split into windows.")
+        st.info("Not enough history to split into windows.")
         st.stop()
 
     recs = []
@@ -705,13 +682,8 @@ else:
         charts.period_heatmap(cells, "value", period_order, method_order, fmt=fmt,
                               centre_zero=centre, title=metric),
         use_container_width=True)
-    st.caption("Rows are ordered by the full-history result, best at the top. Green is "
-               "better throughout: drawdown is stored as a negative number, so a "
-               "shallower fall is the greener one. The 60/40 benchmark sits in the grid "
-               "as its own row, so if it wins a column, nothing beat it in that window. "
-               "The risk-structure optimisers (risk parity, HRP, min variance, max "
-               "Sharpe, max diversification, equal weight, inverse vol) ignore the tier "
-               "and its caps, so they are a reference, not a like-for-like mandate.")
+    st.caption("Best at the top, green is always better. The 60/40 benchmark is a row of "
+               "its own, so if it wins a column nothing beat it in that window.")
 
     # winner per window. max_dd is negative, so the largest value is the shallowest fall
     sub = cells
@@ -730,11 +702,9 @@ else:
     st.altair_chart(charts.winners_chart(tally), use_container_width=True)
     n_win = len(wins)
     top = tally.iloc[0]
-    st.caption(f"{top.method_label} won {int(top.wins)} of {n_win} windows. Read this as a "
-               "description, not a score: the crisis windows sit inside the calendar "
-               "blocks, so the windows overlap and a win count is not independent "
-               "evidence. A method that wins one window and sits mid-table elsewhere was "
-               "probably suited to that regime rather than better in general.")
+    st.caption(f"{top.method_label} won {int(top.wins)} of {n_win} windows. The crisis "
+               "windows sit inside the calendar blocks, so the windows overlap and the "
+               "count is a description, not a score.")
 
     with st.expander("The full grid as a table"):
         tbl = grid.pivot_table(index="method_label", columns="period", values="value",
@@ -745,4 +715,4 @@ else:
         st.download_button("Download CSV", grid.to_csv(index=False),
                            f"optimizer_by_period_{uni}_{tier_c}.csv", "text/csv")
 
-st.caption("Educational reference, not investment advice.")
+st.caption("Backtest results. Not investment advice.")
