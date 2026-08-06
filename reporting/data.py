@@ -153,8 +153,18 @@ _REBAL_COLS = {"date": "Date", "sleeve": "Sleeve", "target_w": "Target %", "w_be
 
 
 def pretty_sleeve(s: str) -> str:
-    """Display name. Strips the '(home)' marker, which is a config note, not a fund name."""
-    return s.replace(" (home)", "")
+    """Display name for a sleeve.
+
+    Strips the '(home)' marker, a config note rather than a fund name. The sleeve keys
+    were written for the EUR book, so on a non-EUR book the three currency-specific
+    names are relabelled: the USD book holds GOVT, LQD and BIL, and calling those
+    'EUR Govt', 'EUR IG credit' and 'EUR money market' on screen is simply wrong.
+    """
+    s = s.replace(" (home)", "")
+    if CCY != "EUR":
+        for a in ("Govt", "IG credit", "money market"):
+            s = s.replace(f"EUR {a}", f"{CCY} {a}")
+    return s
 
 
 def format_rebal(rebal, eps: float = 5e-7) -> pd.DataFrame:

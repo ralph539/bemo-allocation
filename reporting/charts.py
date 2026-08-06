@@ -23,7 +23,14 @@ SHORT = {"Equity - Europe (home)": "Europe", "Equity - US": "US",
          "Fixed income - EM debt": "EM debt", "Gold": "Gold",
          "Liquid alternatives / hedge funds": "Liquid alts",
          "Real assets / REITs / infrastructure": "Real assets", "Cash / EUR money market": "Cash"}
-_short = lambda s: SHORT.get(s, s.split(" - ")[-1]).replace(" (home)", "")
+def _short(s: str) -> str:
+    # chart label: short name, no "(home)" marker, and the EUR-flavoured sleeve keys
+    # renamed on a non-EUR book, where they hold that book's own instruments
+    out = SHORT.get(s, s.split(" - ")[-1]).replace(" (home)", "")
+    if CCY != "EUR":
+        for a in ("Govt", "IG credit", "money market"):
+            out = out.replace(f"EUR {a}", f"{CCY} {a}")
+    return out
 _millions = FuncFormatter(lambda v, _: f"{v/1e6:.2f}M")
 _thousands = FuncFormatter(lambda v, _: f"{v/1e3:.0f}k")
 
