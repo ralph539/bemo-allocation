@@ -123,8 +123,10 @@ SHORT = {
 }
 
 UNIVERSE_HELP_ALL = (
-    "**Real book** is the 14 sleeves the bank actually holds. It starts in 2022 because "
-    "the AI sleeve has no history before that.\n\n"
+    "**Real book** is the 14 sleeves the bank actually holds. Its panel only becomes "
+    "complete on 09 May 2019, when the managed-futures sleeve (DBMF) launched, and the "
+    "engine needs 756 trading days of history before its first trade. That is why the "
+    "backtest starts in mid-2022.\n\n"
     "**Long test** rebuilds the same 14 sleeves from US proxies that go back to 2003, so "
     "the engine can be checked across more market cycles. The two versions differ only in "
     "what stands in for the AI sleeve: QQQ, or an equal-weight AAPL, MSFT and AMZN basket.")
