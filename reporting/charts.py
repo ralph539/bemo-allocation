@@ -23,7 +23,7 @@ SHORT = {"Equity - Europe (home)": "Europe", "Equity - US": "US",
          "Fixed income - EM debt": "EM debt", "Gold": "Gold",
          "Liquid alternatives / hedge funds": "Liquid alts",
          "Real assets / REITs / infrastructure": "Real assets", "Cash / EUR money market": "Cash"}
-_short = lambda s: SHORT.get(s, s.split(" - ")[-1])
+_short = lambda s: SHORT.get(s, s.split(" - ")[-1]).replace(" (home)", "")
 _millions = FuncFormatter(lambda v, _: f"{v/1e6:.2f}M")
 _thousands = FuncFormatter(lambda v, _: f"{v/1e3:.0f}k")
 

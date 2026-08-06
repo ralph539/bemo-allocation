@@ -152,6 +152,11 @@ _REBAL_COLS = {"date": "Date", "sleeve": "Sleeve", "target_w": "Target %", "w_be
                "cost_eur": "Cost EUR", "breached": "Traded"}
 
 
+def pretty_sleeve(s: str) -> str:
+    """Display name. Strips the '(home)' marker, which is a config note, not a fund name."""
+    return s.replace(" (home)", "")
+
+
 def format_rebal(rebal, eps: float = 5e-7) -> pd.DataFrame:
     # solver residuals (order 1e-10) are not weights: clip them before they reach the screen
     df = rebal.copy()
@@ -159,6 +164,7 @@ def format_rebal(rebal, eps: float = 5e-7) -> pd.DataFrame:
         df[c] = (df[c] * 100).where(df[c].abs() > eps, 0.0)
     for c in ["trade_eur", "cost_eur"]:
         df[c] = df[c].where(df[c].abs() > 0.5, 0.0)
+    df["sleeve"] = df["sleeve"].map(pretty_sleeve)
     return df.rename(columns=_REBAL_COLS)[list(_REBAL_COLS.values())]
 
 
@@ -183,7 +189,7 @@ def holdings(rebal, eps: float = 5e-5) -> pd.DataFrame:
     w = latest_weights(rebal)
     bkt, prx = bucket_map(), proxy_map()
     df = pd.DataFrame({
-        "Sleeve": w.index,
+        "Sleeve": [pretty_sleeve(s) for s in w.index],
         "Bucket": [bkt.get(s, "") for s in w.index],
         "ETF": [prx.get(s, "") for s in w.index],
         "Weight %": (w.values * 100),
