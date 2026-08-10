@@ -99,8 +99,14 @@ table.bemo-hold td.neg {color: #c53030;}
 table.bemo-hold td.zero {color: #9aa0a6;}
 table.bemo-trades {font-size: 13px;}
 table.bemo-trades th, table.bemo-trades td {padding-right: 18px;}
-.bemo-scroll {max-height: 460px; overflow-y: auto; border-bottom: 1px solid #e2e2db;}
-.bemo-scroll table.bemo-hold thead th {position: sticky; top: 0; background: #fcfcfa;}
+table.bemo-hold tr.bench td {background: #eef1f5;}
+table.bemo-hold td .cbar {height: 4px; background: #2b6cb0; margin-top: 3px;}
+table.bemo-hold td.yes {color: #2f855a; font-weight: 700;}
+table.bemo-hold td.no {color: #9aa0a6;}
+.bemo-scroll {max-height: 640px; overflow-y: auto;}
+.bemo-scroll table.bemo-hold {border-collapse: separate; border-spacing: 0;}
+.bemo-scroll table.bemo-hold thead th {position: sticky; top: 0; background: #fcfcfa;
+  z-index: 2; border-bottom: none; box-shadow: 0 2px 0 #14161a;}
 @keyframes bemo-in {from {opacity: 0;} to {opacity: 1;}}
 </style>""", unsafe_allow_html=True)
 
@@ -227,10 +233,7 @@ COLS = {"variant": "Variant", "tier": "Tier", "method": "Method", "ann_return": 
         "s2022_ret": "2022 %", "s2022_dd": "2022 DD %",
         "cvar95": "CVaR95 %", "beta": "Beta", "alpha": "Alpha %", "tracking_error": "TE %",
         "info_ratio": "Info ratio", "turnover": "Turnover"}
-CORE = ["Variant", "Tier", "Method", "CAGR %", "Vol %", "Sharpe", "Confidence", "Beats 60/40",
-        "Max DD %", "Turnover"]
 STRESS_COLS = ["2022 %", "2022 DD %"]
-VS_BENCH = ["vs 60/40 %", "Beta", "Alpha %", "TE %", "Info ratio"]
 PCT = ["CAGR %", "Vol %", "Max DD %", "CVaR95 %", "Alpha %", "TE %", "vs 60/40 %",
        "2022 %", "2022 DD %", "Return %"]
 RATIO = ["Sharpe", "Beta", "Info ratio", "Turnover", "vs 60/40 Sharpe"]
@@ -299,43 +302,6 @@ LONG_HISTORY = [u for u in ALL_UNIVERSES
 LIVE_EQUIV = {"eur_book": "full_14", "eur_book_noAI": "no_AI_13"}
 
 
-def humanise(df):
-    out = df[[c for c in COLS if c in df.columns]].rename(columns=COLS)
-    for c in PCT:
-        if c in out:
-            out[c] = out[c] * 100
-    if "Confidence" in out:
-        out["Confidence"] = out["Confidence"] * 100
-    if "Beats 60/40" in out:
-        out["Beats 60/40"] = out["Beats 60/40"].map({True: "yes", False: "no"})
-    return out
-
-
-def style_board(df):
-    fmt = {c: "{:.2f}" for c in PCT + RATIO if c in df.columns}
-    if "Confidence" in df.columns:
-        fmt["Confidence"] = "{:.1f}%"
-    s = df.style.format(fmt)
-    if "Sharpe" in df.columns:
-        s = s.background_gradient(cmap="RdYlGn", subset=["Sharpe"], vmin=0.3, vmax=1.3)
-    if "Confidence" in df.columns:
-        s = s.background_gradient(cmap="RdYlGn", subset=["Confidence"], vmin=40, vmax=100)
-    for c in STRESS_COLS:
-        if c in df.columns:
-            s = s.map(lambda v: "color:#c5221f" if isinstance(v, float) and v < 0 else "",
-                      subset=[c])
-    if "Beats 60/40" in df.columns:
-        s = s.map(lambda v: "background-color:#e6f4ea;color:#137333;font-weight:600"
-                  if v == "yes" else "color:#9aa0a6", subset=["Beats 60/40"])
-    neg = [c for c in ("Alpha %", "Info ratio", "vs 60/40 %", "Return %") if c in df.columns]
-    if neg:
-        s = s.map(lambda v: "color:#c5221f" if isinstance(v, float) and v < 0 else "", subset=neg)
-    if "Method" in df.columns:
-        s = s.map(lambda v: "background-color:#e8f0fe;font-weight:600" if v == BENCH else "",
-                  subset=["Method"])
-    return s
-
-
 def available(universe, method, col):
     # only offer combinations that actually exist in the store
     v = CURVES[(CURVES.universe == universe) & (CURVES.method == method)][col].unique()
@@ -377,6 +343,46 @@ def _cell(label, value, help_txt=""):
     t = f' title="{help_txt}"' if help_txt else ""
     return (f'<div class="cell"><div class="lbl"{t}>{label}</div>'
             f'<div class="val">{value}</div></div>')
+
+
+def bemo_table(df, fmt=None, red_neg=(), bar_col=None, bench_mask=None, scroll=False,
+               mono_cols=()):
+    """House table: micro-headers, hairline rows, right-aligned tabular numerals.
+
+    Presentation only: values arrive already computed. red_neg columns paint
+    negatives red, bar_col adds an in-cell magnitude bar, bench_mask tints the
+    benchmark row, scroll wraps the table with a sticky header.
+    """
+    fmt = fmt or {}
+    num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    bmax = float(df[bar_col].max()) if bar_col in num and len(df) else 0.0
+    head = "".join(f'<th class="num">{_esc(str(c))}</th>' if c in num
+                   else f'<th>{_esc(str(c))}</th>' for c in df.columns)
+    body = []
+    for i in range(len(df)):
+        r = df.iloc[i]
+        cls = ' class="bench"' if bench_mask is not None and bool(bench_mask.iloc[i]) else ""
+        tds = []
+        for c in df.columns:
+            v = r[c]
+            if c in num:
+                txt = "" if pd.isna(v) else fmt.get(c, "{:,.2f}").format(v)
+                sty = ' style="color:#c53030"' if c in red_neg and pd.notna(v) and v < 0 else ""
+                bar = ""
+                if c == bar_col and pd.notna(v) and bmax > 0:
+                    bar = (f'<div class="cbar" '
+                           f'style="width:{max(float(v), 0.0) / bmax * 100:.0f}%"></div>')
+                tds.append(f'<td class="num"{sty}>{txt}{bar}</td>')
+            elif str(v) in ("yes", "no") and str(c).startswith("Beats"):
+                tds.append(f'<td class="{v}">{v}</td>')
+            elif c in mono_cols:
+                tds.append(f'<td class="etf">{_esc(str(v))}</td>')
+            else:
+                tds.append(f'<td>{_esc(str(v))}</td>')
+        body.append(f"<tr{cls}>{''.join(tds)}</tr>")
+    tbl = (f'<table class="bemo-hold"><thead><tr>{head}</tr></thead>'
+           f'<tbody>{"".join(body)}</tbody></table>')
+    return f'<div class="bemo-scroll">{tbl}</div>' if scroll else tbl
 
 
 # ---------------- sidebar ----------------
@@ -657,9 +663,13 @@ if view == "Single run":
 
 # ---------------- compare ----------------
 elif view == "Compare runs":
-    st.title("Compare equity curves")
-    st.caption(f"{UNIVERSE_NAME.get(universe, universe)}. Every run starts at "
-               f"{data.fmt_eur(1_000_000)} on {p_start:%d %b %Y}")
+    st.markdown(
+        f'<div class="bemo-kicker">{_esc(UNIVERSE_NAME.get(universe, universe))}'
+        f' | {p_start:%d %b %Y} to {p_end:%d %b %Y}</div>'
+        '<div class="bemo-title">Compare equity curves</div>'
+        f'<p class="bemo-desc">Every run starts at {data.fmt_eur(1_000_000)} on '
+        f'{p_start:%d %b %Y}. The 60/40 benchmark is the dashed grey reference.</p>',
+        unsafe_allow_html=True)
 
     cur = CURVES[CURVES.universe == universe].copy()
     cur["run"] = [data.run_label(v, t, m) for v, t, m in zip(cur.variant, cur.tier, cur.method)]
@@ -710,7 +720,17 @@ elif view == "Compare runs":
         if wide.empty:
             st.info("Those runs have no data in this window.")
         else:
-            st.pyplot(charts.multi_equity_drawdown_fig(wide, dashed=BENCH))
+            eq_c, dd_c, legend = charts.multi_equity_alt(wide, dashed=BENCH)
+            leg = "".join(
+                f'<span><span class="sw{" dash" if r == BENCH else ""}" '
+                f'style="border-color:{c}"></span>{_esc(NICE.get(r, r))}</span>'
+                for r, c in legend)
+            st.markdown('<div class="bemo-sec">Growth of '
+                        f'{data.fmt_eur(1_000_000)}<span class="hint">hover any date '
+                        'for the exact values</span></div>'
+                        f'<div class="bemo-legend">{leg}</div>', unsafe_allow_html=True)
+            st.altair_chart(eq_c, use_container_width=True, theme=None)
+            st.altair_chart(dd_c, use_container_width=True, theme=None)
             b = pboard[pboard.run.isin(picked)].copy()
             b = b.rename(columns={"ret": "Return %"}).sort_values("sharpe", ascending=False)
             show = b[["run", "Return %", "ann_return", "ann_vol", "sharpe",
@@ -721,27 +741,38 @@ elif view == "Compare runs":
             for c in ["Return %", "CAGR %", "Vol %", "Max DD %", "vs 60/40 %"]:
                 show[c] = show[c] * 100
             show["Beats 60/40"] = show["Beats 60/40"].map({True: "yes", False: "no"})
-            st.dataframe(style_board(show), use_container_width=True, hide_index=True)
+            st.markdown('<div class="bemo-sec">These runs, scored<span class="hint">'
+                        'sorted by Sharpe, best first</span></div>',
+                        unsafe_allow_html=True)
+            st.markdown(bemo_table(show, red_neg=("Return %", "vs 60/40 %"),
+                                   bar_col="Sharpe", bench_mask=(b.method == BENCH),
+                                   mono_cols=("Run",)), unsafe_allow_html=True)
 
 # ---------------- scoreboard ----------------
 elif view == "Full scoreboard":
-    st.title("Full scoreboard")
-    st.caption(f"{UNIVERSE_NAME.get(universe, universe)}, "
-               f"{p_start:%d %b %Y} to {p_end:%d %b %Y}")
+    st.markdown(
+        f'<div class="bemo-kicker">{_esc(UNIVERSE_NAME.get(universe, universe))}'
+        f' | {p_start:%d %b %Y} to {p_end:%d %b %Y}</div>'
+        '<div class="bemo-title">Full scoreboard</div>'
+        '<p class="bemo-desc">Every configuration in the store, scored over the '
+        'selected window.</p>', unsafe_allow_html=True)
     if pboard.empty:
         st.info("No runs cover this window.")
         st.stop()
 
     b = pboard.copy()
-    k = st.columns(3)
-    k[0].metric("Runs", len(b))
-    k[1].metric("Beat 60/40", int(b.beats_bench.sum()),
-                help="Higher total return than the benchmark over this window.")
     best = b[b.method != BENCH].loc[lambda d: d.sharpe.idxmax()]
-    # the run name goes in help, not delta: delta renders as a green up-arrow "change"
-    k[2].metric("Best Sharpe", f"{best.sharpe:.2f}",
-                help=f"{best['run']}. The maximum over {len(b)} correlated runs, so it is "
-                     "the luckiest draw as much as the best method.")
+    cells = "".join([
+        _cell("Runs", f"{len(b)}"),
+        _cell("Beat 60/40", f"{int(b.beats_bench.sum())} of {len(b)}",
+              "Higher total return than the benchmark over this window."),
+        _cell("Best Sharpe", f"{best.sharpe:.2f}"),
+    ])
+    st.markdown(f'<div class="bemo-strip" style="border-top:3px solid #14161a;'
+                f'margin-top:18px">{cells}</div>'
+                f'<div class="bemo-note">Best Sharpe: {_esc(str(best["run"]))}, '
+                f'the maximum over {len(b)} correlated runs, so it is the luckiest draw '
+                'as much as the best method.</div>', unsafe_allow_html=True)
 
     if is_full and is_live:
         brow = board[(board.universe == universe) & (board.method == BENCH)]
@@ -777,15 +808,24 @@ elif view == "Full scoreboard":
         show["Beats 60/40"] = show["Beats 60/40"].map({True: "yes", False: "no"})
         # every sort option here is higher-is-better, drawdown included (it is negative)
         show = show.sort_values(sort_by, ascending=False)
-        st.dataframe(style_board(show), use_container_width=True, hide_index=True, height=620)
+        # display copy only: the CSV below keeps the raw method keys
+        disp = show.copy()
+        disp["Method"] = disp["Method"].map(lambda m: NICE.get(m, m))
+        st.markdown(bemo_table(disp, red_neg=("Return %", "vs 60/40 %"),
+                               bar_col="Sharpe",
+                               bench_mask=(show["Method"] == BENCH), scroll=True),
+                    unsafe_allow_html=True)
         st.download_button("Download CSV", show.to_csv(index=False),
                            f"scoreboard_{universe}_{period}.csv", "text/csv")
 
 # ---------------- which optimizer won ----------------
 else:
-    st.title("Which optimizer won, and when")
-    st.caption("Every method, every window. This view covers all windows at once, so "
-               "the sidebar Period does not apply.")
+    st.markdown(
+        '<div class="bemo-kicker">All windows at once | the sidebar Period '
+        'does not apply here</div>'
+        '<div class="bemo-title">Which optimizer won, and when</div>'
+        '<p class="bemo-desc">Every method, ranked in every window.</p>',
+        unsafe_allow_html=True)
 
     c = st.columns([1.3, 1, 1.3, 1.1])
     uni = c[0].selectbox("Universe", ALL_UNIVERSES,
@@ -841,9 +881,10 @@ else:
         lambda r: f"return {r.ret*100:+.1f}%, Sharpe {r.sharpe:.2f}, "
                   f"drawdown {r.max_dd*100:.1f}%, vs 60/40 {r.excess*100:+.1f}%", axis=1)
 
-    period_order = [p for p in ["2003-2007", "2008-2012", "2013-2017", "2018-2022",
-                                "2023-2026", "GFC 2008", "Euro crisis 2011",
-                                "COVID 2020", "Rate shock 2022"] if p in per_list]
+    # blocks first, then crises, taken from the period module so a window added there
+    # cannot fall out of the ordering and land in the winner table as a blank row
+    canonical = ([n for n, _, _ in periods.BLOCKS] + [n for n, _, _ in periods.CRISES])
+    period_order = [p for p in canonical if p in per_list]
     # Higher is better for every metric here, including max drawdown: it is stored as a
     # negative number, so -5% ranks above -30%.
     full_rank = (grid[grid.period == periods.FULL].set_index("method_label")["value"]
@@ -854,10 +895,13 @@ else:
     # Full history is cumulative over 23 years and dwarfs a 5-year block, so it would
     # flatten the colour scale. It sets the row order instead of taking a column.
     cells = grid[grid.period != periods.FULL]
+    st.markdown(f'<div class="bemo-sec">{_esc(metric)} by window'
+                '<span class="hint">best at the top, hover a cell for the full '
+                'readout</span></div>', unsafe_allow_html=True)
     st.altair_chart(
         charts.period_heatmap(cells, "value", period_order, method_order, fmt=fmt,
                               centre_zero=centre, title=metric),
-        use_container_width=True)
+        use_container_width=True, theme=None)
     st.caption("Best at the top, green is always better. The 60/40 benchmark is a row of "
                "its own, so if it wins a column nothing beat it in that window.")
 
@@ -865,17 +909,21 @@ else:
     sub = cells
     wins = sub.loc[sub.groupby("period")["value"].idxmax(),
                    ["period", "method_label", "value"]]
-    st.subheader("Winner in each window")
+    st.markdown('<div class="bemo-sec">Winner in each window</div>',
+                unsafe_allow_html=True)
     w = wins.copy()
     w["value"] = w["value"].map(lambda v: f"{v:{fmt}}" + ("%" if mult == 100 else ""))
     w = w.rename(columns={"period": "Window", "method_label": "Winner", "value": metric})
     w["Window"] = pd.Categorical(w["Window"], period_order, ordered=True)
-    st.dataframe(w.sort_values("Window"), use_container_width=True, hide_index=True)
+    st.markdown(bemo_table(w.sort_values("Window").astype(str)),
+                unsafe_allow_html=True)
 
     tally = (wins.groupby("method_label").agg(
         wins=("period", "size"), periods=("period", lambda s: ", ".join(s)))
         .reset_index().sort_values("wins", ascending=False))
-    st.altair_chart(charts.winners_chart(tally), use_container_width=True)
+    st.markdown('<div class="bemo-sec">Windows won per method</div>',
+                unsafe_allow_html=True)
+    st.altair_chart(charts.winners_chart(tally), use_container_width=True, theme=None)
     n_win = len(wins)
     top = tally.iloc[0]
     st.caption(f"{top.method_label} won {int(top.wins)} of {n_win} windows. The crisis "

@@ -49,34 +49,44 @@ def period_heatmap(long, value_col, period_order, method_order, fmt=".1f",
     h = height or max(300, 30 * long.method_label.nunique())
     base = alt.Chart(long).encode(
         x=alt.X("period:N", title=None, sort=period_order,
-                axis=alt.Axis(labelAngle=-35, labelFontSize=11)),
+                axis=alt.Axis(labelAngle=-35, labelFontSize=12, orient="top",
+                              domain=False, ticks=False, labelPadding=4)),
         y=alt.Y("method_label:N", title=None, sort=method_order,
-                axis=alt.Axis(labelFontSize=11, labelLimit=0)))
-    cells = base.mark_rect(stroke="white", strokeWidth=1.5).encode(
+                axis=alt.Axis(labelFontSize=12.5, labelLimit=0, domain=False,
+                              ticks=False, labelPadding=8)))
+    cells = base.mark_rect(stroke="#fcfcfa", strokeWidth=2).encode(
         color=alt.Color(f"{value_col}:Q", scale=scale,
-                        legend=alt.Legend(title=title, orient="right")),
+                        legend=alt.Legend(title=title, orient="right",
+                                          gradientLength=170, gradientThickness=9)),
         tooltip=[alt.Tooltip("method_label:N", title="Method"),
                  alt.Tooltip("period:N", title="Period"),
                  alt.Tooltip("tip:N", title="Result")])
-    text = base.mark_text(fontSize=10.5, fontWeight=600).encode(
+    text = base.mark_text(font=FONT, fontSize=11, fontWeight=600).encode(
         text=alt.Text(f"{value_col}:Q", format=fmt),
         color=alt.condition(f"abs(datum.{value_col}) > {lim * 0.55}",
                             alt.value("white"), alt.value("#1a1a1a")))
-    return (cells + text).properties(height=h)
+    return _polish((cells + text).properties(height=h))
 
 
 def winners_chart(df, height=None):
     """Horizontal bar of how many periods each method won, best at the top."""
-    h = height or max(220, 24 * len(df))
-    return (alt.Chart(df).mark_bar(cornerRadiusEnd=3, color="#2b6cb0")
-            .encode(x=alt.X("wins:Q", title="periods won",
-                            axis=alt.Axis(tickMinStep=1)),
-                    y=alt.Y("method_label:N", title=None, sort="-x",
-                            axis=alt.Axis(labelFontSize=11, labelLimit=0)),
-                    tooltip=[alt.Tooltip("method_label:N", title="Method"),
-                             alt.Tooltip("wins:Q", title="Periods won"),
-                             alt.Tooltip("periods:N", title="Which")])
-            .properties(height=h))
+    h = height or max(200, 26 * len(df))
+    tt = [alt.Tooltip("method_label:N", title="Method"),
+          alt.Tooltip("wins:Q", title="Periods won"),
+          alt.Tooltip("periods:N", title="Which")]
+    y = alt.Y("method_label:N", title=None, sort="-x",
+              axis=alt.Axis(labelFontSize=12.5, labelLimit=0, grid=False,
+                            domain=False, ticks=False, labelPadding=8))
+    bars = alt.Chart(df).mark_bar(color=EQUITY_LINE, size=13).encode(
+        x=alt.X("wins:Q", title=None,
+                axis=alt.Axis(tickMinStep=1, format="d", grid=True,
+                              domain=False, ticks=False)),
+        y=y, tooltip=tt)
+    labs = alt.Chart(df).mark_text(align="left", dx=5, font=FONT, fontSize=11.5,
+                                   color="#565b61").encode(
+        x=alt.X("wins:Q", axis=None), y=y, text=alt.Text("wins:Q", format="d"),
+        tooltip=tt)
+    return _polish((bars + labs).properties(height=h))
 
 
 def draw_equity_drawdown(ax_eq, ax_dd, value, bench=None) -> None:
@@ -316,7 +326,8 @@ def equity_drawdown_alt(value, bench=None, eq_height=330, dd_height=120):
     hov = _nearest_date()
     layers = []
     if bench is not None:
-        # first layer carries the axis: a later axis=None would otherwise win
+        # Vega-Lite drops a merged axis if any layer sets axis:null, so the axis is
+        # declared once on the first layer and the rest inherit the shared scale
         layers.append(base.mark_line(color=BAR, strokeWidth=1.1, strokeDash=[5, 3])
                       .encode(x=x_top, y=alt.Y("bench:Q", scale=eq_scale, axis=y_eq)))
         layers.append(base.mark_line(color=EQUITY_LINE, strokeWidth=1.8)
@@ -434,3 +445,66 @@ def turnover_alt(rebal, height=160):
         tooltip=[alt.Tooltip("date:T", format="%d %b %Y", title="Date"),
                  alt.Tooltip("to:Q", format=".1f", title="Turnover %")])
         .properties(height=height))
+
+
+# muted categorical palette for the compare view: house blue first, then gold, teal,
+# brick, slate-blue, olive. The benchmark never takes one of these; it is always the
+# dashed grey reference.
+CAT_PALETTE = ["#2b6cb0", "#b7791f", "#2c7a7b", "#9b2c2c", "#5a6a92", "#8a8635",
+               "#976a2e", "#3d7ea6"]
+
+
+def multi_equity_alt(wide, dashed=None, eq_height=340, dd_height=120):
+    """Interactive twin of multi_equity_drawdown_fig.
+
+    Returns (equity_chart, drawdown_chart, legend) where legend is a list of
+    (run, colour) pairs for the caller to render as chips. Same frame in, same
+    numbers out; drawdowns come from the same cummax as the matplotlib twin.
+    """
+    runs = [c for c in wide.columns if c != dashed]
+    frames = []
+    for run in wide.columns:
+        s = wide[run].dropna()
+        frames.append(pd.DataFrame({"date": pd.to_datetime(s.index), "run": run,
+                                    "value": s.values,
+                                    "dd": (s / s.cummax() - 1).values * 100.0}))
+    df = pd.concat(frames, ignore_index=True)
+    order = runs + ([dashed] if dashed in wide.columns else [])
+    colors = [CAT_PALETTE[i % len(CAT_PALETTE)] for i in range(len(runs))]
+    dashes = [[1, 0]] * len(runs)
+    if dashed in wide.columns:
+        colors.append(BAR)
+        dashes.append([5, 3])
+    cscale = alt.Scale(domain=order, range=colors)
+    dscale = alt.Scale(domain=order, range=dashes)
+    tt = [alt.Tooltip("run:N", title="Run"),
+          alt.Tooltip("date:T", format="%d %b %Y", title="Date"),
+          alt.Tooltip("value:Q", format=",.0f", title=f"Value, {CCY}"),
+          alt.Tooltip("dd:Q", format=".1f", title="Drawdown %")]
+    base = alt.Chart(df)
+    hov = _nearest_date()
+    eq = alt.layer(
+        base.mark_line(strokeWidth=1.5).encode(
+            x=alt.X("date:T", axis=None),
+            y=alt.Y("value:Q", scale=alt.Scale(zero=False),
+                    axis=alt.Axis(title=None, grid=True, tickCount=5,
+                                  labelExpr="format(datum.value / 1e6, '.2f') + 'M'")),
+            color=alt.Color("run:N", scale=cscale, legend=None),
+            strokeDash=alt.StrokeDash("run:N", scale=dscale, legend=None)),
+        base.mark_rule(color="#b6b9be", strokeWidth=1)
+            .encode(x=alt.X("date:T", axis=None)).transform_filter(hov),
+        base.mark_point(size=54, filled=True).encode(
+            x=alt.X("date:T", axis=None), y=alt.Y("value:Q", scale=alt.Scale(zero=False)),
+            color=alt.Color("run:N", scale=cscale, legend=None),
+            opacity=alt.condition(hov, alt.value(1), alt.value(0)),
+            tooltip=tt).add_params(hov),
+    ).properties(height=eq_height)
+    dd = base.mark_line(strokeWidth=1.0).encode(
+        x=alt.X("date:T", axis=alt.Axis(grid=False, title=None, labelPadding=6,
+                                        format="%b %Y", tickCount=6)),
+        y=alt.Y("dd:Q", axis=alt.Axis(title=None, grid=True, tickCount=4,
+                                      labelExpr="format(datum.value, '.0f') + '%'")),
+        color=alt.Color("run:N", scale=cscale, legend=None),
+        strokeDash=alt.StrokeDash("run:N", scale=dscale, legend=None),
+        tooltip=tt).properties(height=dd_height)
+    return _polish(eq), _polish(dd), list(zip(order, colors))
