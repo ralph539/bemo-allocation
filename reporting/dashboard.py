@@ -937,5 +937,3 @@ else:
             cmap="RdYlGn", axis=None), use_container_width=True)
         st.download_button("Download CSV", grid.to_csv(index=False),
                            f"optimizer_by_period_{uni}_{tier_c}.csv", "text/csv")
-
-st.caption("Backtest results. Not investment advice.")
