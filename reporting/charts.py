@@ -307,41 +307,46 @@ def equity_drawdown_alt(value, bench=None, eq_height=330, dd_height=120):
 
     base = alt.Chart(df)
     x_top = alt.X("date:T", axis=None)
-    x_bot = alt.X("date:T", axis=alt.Axis(grid=False, title=None, labelPadding=6))
+    x_bot = alt.X("date:T", axis=alt.Axis(grid=False, title=None, labelPadding=6,
+                                          format="%b %Y", tickCount=6))
+    y_eq = alt.Axis(title=None, grid=True, tickCount=5,
+                    labelExpr="format(datum.value / 1e6, '.2f') + 'M'")
+    eq_scale = alt.Scale(zero=False)
 
     hov = _nearest_date()
     layers = []
     if bench is not None:
+        # first layer carries the axis: a later axis=None would otherwise win
         layers.append(base.mark_line(color=BAR, strokeWidth=1.1, strokeDash=[5, 3])
-                      .encode(x=x_top, y=alt.Y("bench:Q", axis=None)))
-    layers.append(base.mark_line(color=EQUITY_LINE, strokeWidth=1.8)
-                  .encode(x=x_top, y=alt.Y(
-                      "run:Q", scale=alt.Scale(zero=False),
-                      axis=alt.Axis(title=None, grid=True, tickCount=5,
-                                    labelExpr="format(datum.value / 1e6, '.2f') + 'M'"))))
+                      .encode(x=x_top, y=alt.Y("bench:Q", scale=eq_scale, axis=y_eq)))
+        layers.append(base.mark_line(color=EQUITY_LINE, strokeWidth=1.8)
+                      .encode(x=x_top, y=alt.Y("run:Q", scale=eq_scale)))
+    else:
+        layers.append(base.mark_line(color=EQUITY_LINE, strokeWidth=1.8)
+                      .encode(x=x_top, y=alt.Y("run:Q", scale=eq_scale, axis=y_eq)))
     layers.append(base.mark_rule(color="#b6b9be", strokeWidth=1)
                   .encode(x=x_top).transform_filter(hov))
     layers.append(base.mark_point(size=64, filled=True, color=EQUITY_LINE)
-                  .encode(x=x_top, y=alt.Y("run:Q", axis=None),
+                  .encode(x=x_top, y=alt.Y("run:Q", scale=eq_scale),
                           opacity=alt.condition(hov, alt.value(1), alt.value(0)),
                           tooltip=tt)
                   .add_params(hov))
     eq = alt.layer(*layers).properties(height=eq_height)
 
     hov2 = _nearest_date()
+    y_dd = alt.Axis(title=None, grid=True, tickCount=4,
+                    labelExpr="format(datum.value, '.0f') + '%'")
     dd_layers = [base.mark_area(color=LOSS, opacity=0.28)
-                 .encode(x=x_bot, y=alt.Y(
-                     "dd:Q", axis=alt.Axis(title="Drawdown", grid=True, tickCount=4,
-                                           labelExpr="format(datum.value, '.0f') + '%'"))),
+                 .encode(x=x_bot, y=alt.Y("dd:Q", axis=y_dd)),
                  base.mark_line(color=LOSS, strokeWidth=0.9)
-                 .encode(x=x_bot, y=alt.Y("dd:Q", axis=None))]
+                 .encode(x=x_bot, y=alt.Y("dd:Q"))]
     if bench is not None:
         dd_layers.append(base.mark_line(color=BAR, strokeWidth=0.9, strokeDash=[5, 3])
-                         .encode(x=x_bot, y=alt.Y("bench_dd:Q", axis=None)))
+                         .encode(x=x_bot, y=alt.Y("bench_dd:Q")))
     dd_layers.append(base.mark_rule(color="#b6b9be", strokeWidth=1)
                      .encode(x=x_bot).transform_filter(hov2))
     dd_layers.append(base.mark_point(size=54, filled=True, color=LOSS)
-                     .encode(x=x_bot, y=alt.Y("dd:Q", axis=None),
+                     .encode(x=x_bot, y=alt.Y("dd:Q"),
                              opacity=alt.condition(hov2, alt.value(1), alt.value(0)),
                              tooltip=tt)
                      .add_params(hov2))

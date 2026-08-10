@@ -93,11 +93,20 @@ table.bemo-hold td.etf {font-family: ui-monospace, "SF Mono", Consolas, Menlo,
 table.bemo-hold td.bar {width: 32%;}
 table.bemo-hold td.bar div {height: 5px;}
 table.bemo-hold tbody tr:hover {background: #f4f4ee;}
+table.bemo-hold td.dim {color: #6b7280; font-weight: 400;}
+table.bemo-hold td.pos {color: #2f855a;}
+table.bemo-hold td.neg {color: #c53030;}
+table.bemo-hold td.zero {color: #9aa0a6;}
+table.bemo-trades {font-size: 13px;}
+table.bemo-trades th, table.bemo-trades td {padding-right: 18px;}
+.bemo-scroll {max-height: 460px; overflow-y: auto; border-bottom: 1px solid #e2e2db;}
+.bemo-scroll table.bemo-hold thead th {position: sticky; top: 0; background: #fcfcfa;}
 @keyframes bemo-in {from {opacity: 0;} to {opacity: 1;}}
 </style>""", unsafe_allow_html=True)
 
 REF = "-"
 BENCH = "bench_60_40"
+TRADE_ROWS = 400          # beyond this the trade log goes to the CSV
 TIERS = ["conservative", "balanced", "growth", "aggressive"]
 VARIANTS = ["house", "peer_mid", "peer_low", "peer_high", "us_tilt"]
 
@@ -539,13 +548,19 @@ if view == "Single run":
         return pd.DataFrame({"date": v.index, "value_eur": v.values,
                              "drawdown": (v / v.cummax() - 1).values})
 
-    # the equity and drawdown panels stay on the original matplotlib figure: it is the
-    # chart already used in the report and the presentation, so the two must match
+    # same two panels as the report figure, drawn in Altair so any date can be hovered
+    # for the exact values. charts.equity_drawdown_fig stays for the static tearsheet.
     bench_frame = None if method == BENCH or bench_eq is None else _value_frame(bench_eq)
+    eq_chart, dd_chart = charts.equity_drawdown_alt(_value_frame(mine), bench_frame)
+    leg = '<span><span class="sw" style="border-color:#2b6cb0"></span>This run</span>'
+    if bench_frame is not None:
+        leg += ('<span><span class="sw dash" style="border-color:#4a5568"></span>'
+                '60/40 benchmark</span>')
     st.markdown(f'<div class="bemo-sec">Growth of {data.fmt_eur(START)}'
-                f'<span class="hint">{p_start:%b %Y} to {p_end:%b %Y}</span></div>',
-                unsafe_allow_html=True)
-    st.pyplot(_blend(charts.equity_drawdown_fig(_value_frame(mine), bench_frame)))
+                '<span class="hint">hover any date for the exact values</span></div>'
+                f'<div class="bemo-legend">{leg}</div>', unsafe_allow_html=True)
+    st.altair_chart(eq_chart, use_container_width=True, theme=None)
+    st.altair_chart(dd_chart, use_container_width=True, theme=None)
 
     if rebal is not None:
         last_date = pd.to_datetime(rebal["date"]).max()
@@ -597,19 +612,41 @@ if view == "Single run":
                 st.caption("No trades executed in this window.")
             else:
                 st.altair_chart(tchart, use_container_width=True, theme=None)
-            only_traded = st.checkbox("Only dates where it traded", value=False)
+            # the log holds one row per sleeve per monthly check, and on most checks
+            # nothing traded. Showing the executed rows first keeps the table readable;
+            # the toggle and the CSV still carry every check.
+            only_traded = st.checkbox("Only dates where it traded", value=True)
             rb = rebal[rebal["breached"]] if only_traded else rebal
-            st.dataframe(data.format_rebal(rb), use_container_width=True,
-                         hide_index=True, height=320,
-                         column_config={
-                             "Date": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                             "Target %": st.column_config.NumberColumn(format="%.2f"),
-                             "Before %": st.column_config.NumberColumn(format="%.2f"),
-                             "After %": st.column_config.NumberColumn(format="%.2f"),
-                             "Trade %": st.column_config.NumberColumn(format="%.2f"),
-                             "Trade EUR": st.column_config.NumberColumn(format="%.0f"),
-                             "Cost EUR": st.column_config.NumberColumn(format="%.0f"),
-                             "Traded": st.column_config.CheckboxColumn()})
+            fr = data.format_rebal(rb)
+            st.caption(f"{len(fr):,} rows"
+                       + ("" if only_traded else ", including checks where nothing traded"))
+            if len(fr) > TRADE_ROWS:
+                st.caption(f"Showing the first {TRADE_ROWS:,}. Download the CSV for all "
+                           f"{len(fr):,}.")
+            rows = []
+            for _, tr in fr.head(TRADE_ROWS).iterrows():
+                tp = float(tr["Trade %"])
+                cls = "pos" if tp > 0 else ("neg" if tp < 0 else "zero")
+                arrow = "buy" if tp > 0 else ("sell" if tp < 0 else "")
+                rows.append(
+                    f'<tr><td class="etf">{tr["Date"]:%Y-%m-%d}</td>'
+                    f'<td>{_esc(str(tr["Sleeve"]))}</td>'
+                    f'<td class="num">{tr["Target %"]:.2f}</td>'
+                    f'<td class="num dim">{tr["Before %"]:.2f}</td>'
+                    f'<td class="num">{tr["After %"]:.2f}</td>'
+                    f'<td class="num {cls}">{tp:+.2f}</td>'
+                    f'<td class="num dim">{arrow}</td>'
+                    f'<td class="num">{tr["Trade EUR"]:,.0f}</td>'
+                    f'<td class="num dim">{tr["Cost EUR"]:,.0f}</td></tr>')
+            st.markdown(
+                '<div class="bemo-scroll"><table class="bemo-hold bemo-trades"><thead><tr>'
+                '<th>Date</th><th>Sleeve</th><th class="num">Target %</th>'
+                '<th class="num">Before %</th><th class="num">After %</th>'
+                '<th class="num">Trade %</th><th class="num"></th>'
+                f'<th class="num">Trade {data.CCY}</th>'
+                f'<th class="num">Cost {data.CCY}</th></tr></thead>'
+                f'<tbody>{"".join(rows)}</tbody></table></div>',
+                unsafe_allow_html=True)
             st.download_button("Download CSV", rebal.to_csv(index=False),
                                f"rebalance_{variant}_{tier}_{method}_{universe}.csv",
                                "text/csv")
