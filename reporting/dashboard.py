@@ -3,6 +3,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from html import escape as _esc
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -11,9 +13,88 @@ from backtest.metrics import benchmark_metrics
 from reporting import data, charts, periods
 
 st.set_page_config(page_title="Bemo allocation backtest", layout="wide")
-# the default sidebar cuts the universe names off mid-word
-st.markdown("<style>[data-testid='stSidebar']{min-width:360px;max-width:360px}</style>",
-            unsafe_allow_html=True)
+# Presentation layer. One block of CSS: typographic hierarchy (serif display for the
+# run title, tabular figures everywhere), the KPI band, section labels and the
+# holdings table. Colour stays semantic: green/red for gain/loss, bucket colours for
+# asset classes, everything else neutral ink on off-white.
+st.markdown("""
+<style>
+[data-testid="stSidebar"] {min-width: 340px; max-width: 340px; background: #f2f2ec;
+  border-right: 1px solid #e2e2db;}
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {font-size: 11px;
+  font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: #6b7280;}
+[data-testid="stSidebar"] [data-baseweb="select"] > div {border-radius: 0;
+  border: 1px solid #cfcfc8; background: #ffffff;}
+.bemo-brand {font-size: 15px; font-weight: 700; letter-spacing: .14em; color: #14161a;}
+.bemo-brandsub {font-size: 12.5px; color: #6b7280; margin: 2px 0 16px;}
+/* the view switcher, as a nav list rather than radio buttons */
+.st-key-navview [role="radiogroup"] {gap: 2px;}
+.st-key-navview [role="radiogroup"] > label {width: 100%; margin: 0; padding: 6px 10px;
+  border-left: 3px solid transparent;}
+.st-key-navview [role="radiogroup"] > label > span:first-child {display: none;}
+.st-key-navview [data-testid="stRadioOption"] > div > div > div:not([data-testid="stMarkdownContainer"]) {display: none;}
+.st-key-navview [role="radiogroup"] > label p {font-size: 13.5px; color: #4b5157;}
+.st-key-navview [role="radiogroup"] > label:has(input:checked) {border-left-color: #14161a;
+  background: #ffffff;}
+.st-key-navview [role="radiogroup"] > label:has(input:checked) p {color: #14161a;
+  font-weight: 700;}
+html, body {font-variant-numeric: lining-nums tabular-nums;}
+.block-container {padding-top: 2.4rem; max-width: 1400px;}
+[data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] {gap: 0.4rem;}
+#vg-tooltip-element {font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial,
+  sans-serif; font-size: 12.5px; border: 1px solid #d8d8d1; border-radius: 2px;
+  color: #1b1e23;}
+#vg-tooltip-element td.key {color: #6b7280;}
+.bemo-kicker {font-size: 12px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: #6b7280; margin-bottom: 2px;}
+.bemo-title {font-family: Georgia, "Times New Roman", serif; font-size: 34px;
+  font-weight: 700; line-height: 1.12; color: #14161a; letter-spacing: -.005em;}
+.bemo-desc {font-size: 14.5px; line-height: 1.45; color: #4b5157; max-width: 72ch;
+  margin: 4px 0 0;}
+.bemo-hero {display: flex; flex-wrap: wrap; gap: 12px 64px; margin-top: 18px;
+  padding: 16px 0 14px; border-top: 3px solid #14161a; animation: bemo-in .18s ease-out;}
+.bemo-hero .lbl, .bemo-strip .lbl {font-size: 11px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: #6b7280;
+  margin-bottom: 4px; white-space: nowrap; cursor: default;}
+.bemo-hero .big {font-size: 40px; font-weight: 700; line-height: 1; color: #14161a;
+  letter-spacing: -.01em;}
+.bemo-hero .big.dim {color: #6b7280; font-weight: 600;}
+.bemo-hero .sub {font-size: 13.5px; color: #4b5157; margin-top: 6px;}
+.pos {color: #2f855a; font-weight: 600;} .neg {color: #c53030; font-weight: 600;}
+.bemo-strip {display: flex; flex-wrap: wrap; gap: 10px 40px; padding: 12px 0;
+  border-top: 1px solid #e2e2db; border-bottom: 1px solid #e2e2db;
+  animation: bemo-in .18s ease-out;}
+.bemo-strip .val {font-size: 21px; font-weight: 600; color: #14161a; margin-top: 1px;}
+.bemo-note {font-size: 12.5px; color: #6b7280; margin-top: 6px;}
+.bemo-sec {display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: #14161a; margin: 30px 0 4px;}
+.bemo-sec .hint {font-weight: 400; letter-spacing: 0; text-transform: none;
+  font-size: 12.5px; color: #6b7280;}
+.bemo-legend {display: flex; gap: 20px; font-size: 12.5px; color: #4b5157;}
+.bemo-legend .sw {display: inline-block; width: 18px; border-top: 2.5px solid;
+  margin-right: 6px; vertical-align: 3px;}
+.bemo-legend .sw.dash {border-top-style: dashed; border-top-width: 2px;}
+.bemo-chips {display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px;
+  font-size: 13px; font-weight: 600; color: #33373d; margin-top: 2px;}
+.dot {display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 6px;}
+table.bemo-hold {width: 100%; border-collapse: collapse; font-size: 14px;
+  animation: bemo-in .18s ease-out;}
+table.bemo-hold th {text-align: left; font-size: 11px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase; color: #6b7280;
+  padding: 6px 12px 6px 0; border-bottom: 2px solid #14161a;}
+table.bemo-hold th.num {text-align: right;}
+table.bemo-hold td {padding: 6px 12px 6px 0; border-bottom: 1px solid #ebebe4;
+  color: #1b1e23; vertical-align: middle; line-height: 1.25;}
+table.bemo-hold td.num {text-align: right; font-weight: 600; white-space: nowrap;}
+table.bemo-hold td.etf {font-family: ui-monospace, "SF Mono", Consolas, Menlo,
+  monospace; font-size: 12.5px; color: #4b5157;}
+table.bemo-hold td.bar {width: 32%;}
+table.bemo-hold td.bar div {height: 5px;}
+table.bemo-hold tbody tr:hover {background: #f4f4ee;}
+@keyframes bemo-in {from {opacity: 0;} to {opacity: 1;}}
+</style>""", unsafe_allow_html=True)
 
 REF = "-"
 BENCH = "bench_60_40"
@@ -275,9 +356,28 @@ def confidence_note(n_trials, bench_dsr):
             f"{int(n_trials)} things.** The fix is more history, not more ideas.")
 
 
+def _blend(fig):
+    """Drop the figure's white ground so it sits on the page, not in a box."""
+    fig.patch.set_alpha(0.0)
+    for ax in fig.axes:
+        ax.set_facecolor("none")
+    return fig
+
+
+def _cell(label, value, help_txt=""):
+    t = f' title="{help_txt}"' if help_txt else ""
+    return (f'<div class="cell"><div class="lbl"{t}>{label}</div>'
+            f'<div class="val">{value}</div></div>')
+
+
 # ---------------- sidebar ----------------
 with st.sidebar:
-    st.title("Bemo allocation")
+    st.markdown('<div class="bemo-brand">BEMO</div><div class="bemo-brandsub">'
+                'Multi-asset allocation backtests</div>', unsafe_allow_html=True)
+    view = st.radio("View", ["Single run", "Compare runs", "Full scoreboard",
+                             "Which optimizer won"],
+                    label_visibility="collapsed", key="navview")
+
     def _span_label(u):
         d = data.universe_dates(CURVES, u)
         return UNIVERSE_NAME.get(u, f"{u}  ({d.min():%Y} to {d.max():%Y})")
@@ -300,10 +400,6 @@ with st.sidebar:
     if len(period_opts) <= 2 and LONG_HISTORY:
         st.info("Only the long tests reach back to 2003. Pick one above for the "
                 "earlier decades and crises.")
-
-view = st.segmented_control("View", ["Single run", "Compare runs", "Full scoreboard",
-                                     "Which optimizer won"],
-                            default="Single run", label_visibility="collapsed") or "Single run"
 
 pboard = period_board(universe, period)
 is_full = period == periods.FULL
@@ -354,12 +450,16 @@ if view == "Single run":
     end_val = float(mine.iloc[-1]) * START
     profit = end_val - START
 
-    st.title(NICE.get(method, method) if variant == REF
-             else f"{tier.title()} tier, {NICE.get(method, method)}")
-    st.subheader(f"{UNIVERSE_NAME.get(universe, universe)}"
-                 f"{'' if variant == REF else f', {variant} weights'}", divider="gray",
-                 help=DESC.get(method, ""))
-    st.caption(f"{p_start:%d %b %Y} to {p_end:%d %b %Y}, {len(mine):,} trading days")
+    ttl = (NICE.get(method, method) if variant == REF
+           else f"{tier.title()} tier, {NICE.get(method, method)}")
+    kick = (f"{_esc(UNIVERSE_NAME.get(universe, universe))}"
+            + ("" if variant == REF else f" | {_esc(variant)} weights")
+            + f" | {p_start:%d %b %Y} to {p_end:%d %b %Y}"
+            + f" | {len(mine):,} trading days")
+    st.markdown(f'<div class="bemo-kicker">{kick}</div>'
+                f'<div class="bemo-title">{_esc(ttl)}</div>'
+                f'<p class="bemo-desc">{_esc(DESC.get(method, ""))}</p>',
+                unsafe_allow_html=True)
     # CAGR and volatility are blanked below this length; Sharpe and alpha are annualised
     # too, so say plainly that they are not rates here rather than let a 38-day Sharpe
     # of 3.9 read as an edge
@@ -367,47 +467,9 @@ if view == "Single run":
         st.warning(f"Only {len(mine)} trading days. Compare total return and drawdown "
                    "here, not CAGR, Sharpe or alpha.")
 
-    r = st.columns(4)
-    r[0].metric("Start", data.fmt_eur(START))
-    r[1].metric("End", data.fmt_eur(end_val),
-                delta=f"{'+' if profit >= 0 else '-'}{data.fmt_eur(abs(profit))} "
-                      f"({(end_val / START - 1) * 100:+.1f}%)")
-    short = row is None or pd.isna(row["ann_return"])
-    r[2].metric("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
-                help="Yearly compounded growth rate. Not shown on a window under 120 "
-                     "trading days, where annualising is meaningless.")
-    r[3].metric("Sharpe", f"{row['sharpe']:.2f}" if row is not None else "n/a",
-                help="Return above cash per unit of volatility.")
-
-    r = st.columns(4)
-    r[0].metric("Volatility", "n/a" if row is None or pd.isna(row["ann_vol"])
-                else data.fmt_pct(row["ann_vol"]))
-    r[1].metric("Max drawdown", data.fmt_pct(float((mine / mine.cummax() - 1).min())),
-                help="Worst fall from a peak inside this window.")
-    r[2].metric("Beta", "n/a" if pd.isna(bm["beta"]) else f"{bm['beta']:.2f}",
-                help="Share of the benchmark's risk carried.")
-    r[3].metric("Alpha", "n/a" if pd.isna(bm["alpha"]) else data.fmt_pct(bm["alpha"]),
-                help="Return that market exposure cannot explain.")
-
-    r = st.columns(4)
-    r[0].metric("CVaR 95", data.fmt_pct(row["cvar95"]) if row is not None else "n/a",
-                help="Average of the worst 5% of days.")
-    if bench_eq is not None and method != BENCH:
-        b_end = float(bench_eq.iloc[-1]) * START
-        gap = end_val - b_end
-        # the sign has to lead the string or Streamlit paints a loss green
-        r[1].metric("60/40 would give", data.fmt_eur(b_end),
-                    delta=f"{'+' if gap >= 0 else '-'}{data.fmt_eur(abs(gap))} for this run",
-                    help="The same stake in the passive benchmark, same window.")
-        # a percentage-point gap, not a return: over 20 years the two totals differ by
-        # more than 100 points and calling that a percentage reads as nonsense
-        r[2].metric("vs 60/40", "n/a" if row is None
-                    else f"{row['excess_return'] * 100:+.1f} pts",
-                    help="Total return minus the benchmark's, in percentage points, "
-                         "over this window.")
-
     # the ledger only exists for the funded book, and only there can trades be counted
     rebal = attrib = None
+    turn_cell, trade_note = "", ""
     if is_live:
         try:
             run = data.load_run(universe, tier, method, variant)
@@ -417,49 +479,124 @@ if view == "Single run":
                 rebal = all_rebal
             traded = int(rebal[rebal["breached"]]["date"].nunique())
             cost = rebal["cost_eur"].sum()
-            r[3].metric("Turnover", f"{run['metrics']['turnover']:.2f}x",
-                        help="How much of the book it trades a year, over the full run.")
-            st.caption(f"Traded {traded} of {rebal['date'].nunique()} monthly checks, "
-                       f"cost {data.fmt_eur(cost)}")
+            turn_cell = _cell("Turnover", f"{run['metrics']['turnover']:.2f}x",
+                              "How much of the book it trades a year, over the full run.")
+            trade_note = (f"Traded {traded} of {rebal['date'].nunique()} monthly checks, "
+                          f"cost {data.fmt_eur(cost)}")
         except KeyError:
             pass
+
+    # the money outcome leads (what happened to the million, and would 60/40 have done
+    # better); rates and ratios follow in one dense stat strip. Same numbers as before,
+    # ranked by how often the audience asks for them.
+    pos = "pos" if profit >= 0 else "neg"
+    hero = (f'<div><div class="lbl" title="Value at the end of the window">Final value</div>'
+            f'<div class="big">{data.fmt_eur(end_val)}</div>'
+            f'<div class="sub"><span class="{pos}">{"+" if profit >= 0 else "-"}'
+            f'{data.fmt_eur(abs(profit))} ({(end_val / START - 1) * 100:+.1f}%)</span>'
+            f' on {data.fmt_eur(START)} invested</div></div>')
+    if bench_eq is not None and method != BENCH:
+        b_end = float(bench_eq.iloc[-1]) * START
+        gap = end_val - b_end
+        gpos = "pos" if gap >= 0 else "neg"
+        # a percentage-point gap, not a return: over 20 years the two totals differ by
+        # more than 100 points and calling that a percentage reads as nonsense
+        pts_help = ("Total return minus the benchmark's, in percentage points, "
+                    "over this window.")
+        pts = ("" if row is None else
+               f' | <span title="{pts_help}">{row["excess_return"] * 100:+.1f} pts</span>')
+        hero += (f'<div><div class="lbl" title="The same stake in the passive benchmark, '
+                 f'same window">Same stake in 60/40</div>'
+                 f'<div class="big dim">{data.fmt_eur(b_end)}</div>'
+                 f'<div class="sub"><span class="{gpos}">{"+" if gap >= 0 else "-"}'
+                 f'{data.fmt_eur(abs(gap))}</span> for this run{pts}</div></div>')
+
+    short = row is None or pd.isna(row["ann_return"])
+    cells = "".join([
+        _cell("CAGR", "n/a" if short else data.fmt_pct(row["ann_return"]),
+              "Yearly compounded growth rate. Not shown on a window under 120 "
+              "trading days, where annualising is meaningless."),
+        _cell("Volatility", "n/a" if row is None or pd.isna(row["ann_vol"])
+              else data.fmt_pct(row["ann_vol"])),
+        _cell("Sharpe", f"{row['sharpe']:.2f}" if row is not None else "n/a",
+              "Return above cash per unit of volatility."),
+        _cell("Max drawdown", data.fmt_pct(float((mine / mine.cummax() - 1).min())),
+              "Worst fall from a peak inside this window."),
+        _cell("CVaR 95", data.fmt_pct(row["cvar95"]) if row is not None else "n/a",
+              "Average of the worst 5% of days."),
+        _cell("Beta", "n/a" if pd.isna(bm["beta"]) else f"{bm['beta']:.2f}",
+              "Share of the benchmark's risk carried."),
+        _cell("Alpha", "n/a" if pd.isna(bm["alpha"]) else data.fmt_pct(bm["alpha"]),
+              "Return that market exposure cannot explain."),
+    ]) + turn_cell
+    st.markdown(f'<div class="bemo-hero">{hero}</div>'
+                f'<div class="bemo-strip">{cells}</div>'
+                + (f'<div class="bemo-note">{trade_note}</div>' if trade_note else ""),
+                unsafe_allow_html=True)
 
     def _value_frame(eq):
         v = eq * START
         return pd.DataFrame({"date": v.index, "value_eur": v.values,
                              "drawdown": (v / v.cummax() - 1).values})
 
-    st.pyplot(charts.equity_drawdown_fig(
-        _value_frame(mine),
-        None if method == BENCH or bench_eq is None else _value_frame(bench_eq)))
+    # the equity and drawdown panels stay on the original matplotlib figure: it is the
+    # chart already used in the report and the presentation, so the two must match
+    bench_frame = None if method == BENCH or bench_eq is None else _value_frame(bench_eq)
+    st.markdown(f'<div class="bemo-sec">Growth of {data.fmt_eur(START)}'
+                f'<span class="hint">{p_start:%b %Y} to {p_end:%b %Y}</span></div>',
+                unsafe_allow_html=True)
+    st.pyplot(_blend(charts.equity_drawdown_fig(_value_frame(mine), bench_frame)))
 
     if rebal is not None:
-        c = st.columns(2)
-        c[0].markdown("**Allocation**")
-        c[0].pyplot(charts.donut_fig(data.latest_weights(rebal), data.bucket_map(),
-                                     figsize=(6.6, 6.0), scale=1.8))
-        if is_full:
-            c[1].markdown(f"**Profit and loss by sleeve ({data.CCY})**")
-            c[1].pyplot(charts.pnl_fig(attrib, figsize=(6.4, 5.6), scale=1.7))
-        else:
-            c[1].markdown(f"**Profit and loss by sleeve ({data.CCY})**")
-            c[1].info("Only available over full history. Switch Period to see it.")
+        last_date = pd.to_datetime(rebal["date"]).max()
+        c = st.columns(2, gap="large")
+        with c[0]:
+            st.markdown('<div class="bemo-sec">Allocation<span class="hint">latest '
+                        f'rebalance, {last_date:%b %Y}</span></div>',
+                        unsafe_allow_html=True)
+            w = data.latest_weights(rebal)
+            # the matplotlib donut keeps its leader-line de-collision: the Altair twin
+            # lays labels on the ring itself, so long ones hide behind the arc
+            st.pyplot(_blend(charts.donut_fig(w, data.bucket_map(),
+                                              figsize=(6.6, 6.0), scale=1.8)))
+        with c[1]:
+            st.markdown('<div class="bemo-sec">Profit and loss by sleeve'
+                        f'<span class="hint">{data.CCY}, full history</span></div>',
+                        unsafe_allow_html=True)
+            if is_full:
+                st.altair_chart(charts.pnl_alt(attrib), use_container_width=True,
+                                theme=None)
+            else:
+                st.markdown('<div class="bemo-note">Only available over full history. '
+                            'Switch Period to see it.</div>', unsafe_allow_html=True)
 
         hold = data.holdings(rebal)
-        last_date = pd.to_datetime(rebal["date"]).max()
-        st.markdown(f"**Holdings on {last_date:%d %b %Y}**")
+        st.markdown(f'<div class="bemo-sec">Holdings<span class="hint">on '
+                    f'{last_date:%d %b %Y}, largest first</span></div>',
+                    unsafe_allow_html=True)
         bcol = charts.BUCKET_COLORS
-        styled = (hold.style
-                  .apply(lambda r: [f"color: {bcol.get(r['Bucket'], '#333')}; "
-                                    "font-weight: 600"] * len(r), axis=1)
-                  .format({"Weight %": "{:.2f}"}))
-        st.dataframe(styled, use_container_width=True, hide_index=True,
-                     column_config={"Weight %": st.column_config.ProgressColumn(
-                         format="%.2f%%", min_value=0.0,
-                         max_value=float(hold["Weight %"].max()))})
+        maxw = float(hold["Weight %"].max())
+        rows = []
+        for _, hr in hold.iterrows():
+            col = bcol.get(hr["Bucket"], "#718096")
+            rows.append(
+                f'<tr><td>{_esc(str(hr["Sleeve"]))}</td>'
+                f'<td><span class="dot" style="background:{col}"></span>'
+                f'{_esc(str(hr["Bucket"]))}</td>'
+                f'<td class="etf">{_esc(str(hr["ETF"]))}</td>'
+                f'<td class="num">{hr["Weight %"]:.2f}</td>'
+                f'<td class="bar"><div style="width:{hr["Weight %"] / maxw * 100:.1f}%;'
+                f'background:{col}"></div></td></tr>')
+        st.markdown('<table class="bemo-hold"><thead><tr><th>Sleeve</th><th>Bucket</th>'
+                    '<th>ETF</th><th class="num">Weight %</th><th></th></tr></thead>'
+                    f'<tbody>{"".join(rows)}</tbody></table>', unsafe_allow_html=True)
 
         with st.expander("Trades: every date, every sleeve"):
-            st.pyplot(charts.turnover_fig(rebal))
+            tchart = charts.turnover_alt(rebal)
+            if tchart is None:
+                st.caption("No trades executed in this window.")
+            else:
+                st.altair_chart(tchart, use_container_width=True, theme=None)
             only_traded = st.checkbox("Only dates where it traded", value=False)
             rb = rebal[rebal["breached"]] if only_traded else rebal
             st.dataframe(data.format_rebal(rb), use_container_width=True,

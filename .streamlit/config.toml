@@ -1,13 +1,8 @@
-[client]
-toolbarMode = "viewer"
-
-[browser]
-gatherUsageStats = false
-
+# Presentation theme: warm off-white ground, near-black ink, the charts' muted
+# blue as the single accent. Green and red stay reserved for gain and loss.
 [theme]
 base = "light"
-primaryColor = "#2C4A63"
-backgroundColor = "#F5F8FB"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#1B2A38"
-font = "sans serif"
+primaryColor = "#2b6cb0"
+backgroundColor = "#fcfcfa"
+secondaryBackgroundColor = "#f2f2ec"
+textColor = "#1b1e23"

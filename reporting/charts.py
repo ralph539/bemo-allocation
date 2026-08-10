@@ -256,3 +256,176 @@ def turnover_fig(rebal, figsize=(9, 2.6)):
     draw_turnover(ax, rebal)
     fig.tight_layout()
     return fig
+
+
+# ---------------- interactive charts (Altair) ----------------
+# Altair twins of the matplotlib figures above: same inputs, same numbers, plus a
+# hover that reads out the exact date and value. The matplotlib versions stay for
+# anything that needs a static figure.
+
+alt.data_transformers.disable_max_rows()   # the long tests hold ~6k daily rows
+
+FONT = "-apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+_GRID, _AXTX, _DOM = "#e9e9e3", "#6b7280", "#cfcfc8"
+
+
+def _polish(chart):
+    """House axis style: horizontal grid only, no plot box, quiet grey axes."""
+    return (chart
+            .configure_view(strokeWidth=0)
+            .configure_axis(labelFont=FONT, titleFont=FONT, labelFontSize=12.5,
+                            titleFontSize=12, titleFontWeight=500, labelColor=_AXTX,
+                            titleColor=_AXTX, gridColor=_GRID, gridWidth=0.8,
+                            domainColor=_DOM, tickColor=_DOM)
+            .configure_legend(labelFont=FONT, titleFont=FONT, labelFontSize=12.5))
+
+
+def _nearest_date():
+    return alt.selection_point(fields=["date"], nearest=True, on="pointerover",
+                               empty=False, clear="pointerout")
+
+
+def equity_drawdown_alt(value, bench=None, eq_height=330, dd_height=120):
+    """Interactive twin of equity_drawdown_fig. Same frames in, same numbers out.
+
+    Returns (equity_chart, drawdown_chart): the caller stacks them, and each panel
+    carries its own nearest-date hover with the full readout. Nothing is resampled.
+    """
+    df = pd.DataFrame({"date": pd.to_datetime(value["date"]),
+                       "run": value["value_eur"].values,
+                       "dd": value["drawdown"].values * 100.0})
+    if bench is not None:
+        b = bench.set_index("date").reindex(pd.DatetimeIndex(df["date"]))
+        df["bench"] = b["value_eur"].values
+        df["bench_dd"] = b["drawdown"].values * 100.0
+
+    tt = [alt.Tooltip("date:T", format="%d %b %Y", title="Date"),
+          alt.Tooltip("run:Q", format=",.0f", title=f"This run, {CCY}")]
+    if bench is not None:
+        tt.append(alt.Tooltip("bench:Q", format=",.0f", title=f"60/40, {CCY}"))
+    tt.append(alt.Tooltip("dd:Q", format=".1f", title="Drawdown %"))
+
+    base = alt.Chart(df)
+    x_top = alt.X("date:T", axis=None)
+    x_bot = alt.X("date:T", axis=alt.Axis(grid=False, title=None, labelPadding=6))
+
+    hov = _nearest_date()
+    layers = []
+    if bench is not None:
+        layers.append(base.mark_line(color=BAR, strokeWidth=1.1, strokeDash=[5, 3])
+                      .encode(x=x_top, y=alt.Y("bench:Q", axis=None)))
+    layers.append(base.mark_line(color=EQUITY_LINE, strokeWidth=1.8)
+                  .encode(x=x_top, y=alt.Y(
+                      "run:Q", scale=alt.Scale(zero=False),
+                      axis=alt.Axis(title=None, grid=True, tickCount=5,
+                                    labelExpr="format(datum.value / 1e6, '.2f') + 'M'"))))
+    layers.append(base.mark_rule(color="#b6b9be", strokeWidth=1)
+                  .encode(x=x_top).transform_filter(hov))
+    layers.append(base.mark_point(size=64, filled=True, color=EQUITY_LINE)
+                  .encode(x=x_top, y=alt.Y("run:Q", axis=None),
+                          opacity=alt.condition(hov, alt.value(1), alt.value(0)),
+                          tooltip=tt)
+                  .add_params(hov))
+    eq = alt.layer(*layers).properties(height=eq_height)
+
+    hov2 = _nearest_date()
+    dd_layers = [base.mark_area(color=LOSS, opacity=0.28)
+                 .encode(x=x_bot, y=alt.Y(
+                     "dd:Q", axis=alt.Axis(title="Drawdown", grid=True, tickCount=4,
+                                           labelExpr="format(datum.value, '.0f') + '%'"))),
+                 base.mark_line(color=LOSS, strokeWidth=0.9)
+                 .encode(x=x_bot, y=alt.Y("dd:Q", axis=None))]
+    if bench is not None:
+        dd_layers.append(base.mark_line(color=BAR, strokeWidth=0.9, strokeDash=[5, 3])
+                         .encode(x=x_bot, y=alt.Y("bench_dd:Q", axis=None)))
+    dd_layers.append(base.mark_rule(color="#b6b9be", strokeWidth=1)
+                     .encode(x=x_bot).transform_filter(hov2))
+    dd_layers.append(base.mark_point(size=54, filled=True, color=LOSS)
+                     .encode(x=x_bot, y=alt.Y("dd:Q", axis=None),
+                             opacity=alt.condition(hov2, alt.value(1), alt.value(0)),
+                             tooltip=tt)
+                     .add_params(hov2))
+    dd = alt.layer(*dd_layers).properties(height=dd_height)
+    return _polish(eq), _polish(dd)
+
+
+def donut_alt(weights, buckets, height=330):
+    """Interactive twin of donut_fig: hover a wedge for the exact weight.
+
+    Wedges are coloured by bucket; on-ring labels are shown for wedges of 2% and
+    up, and the holdings table below the chart carries every position exactly.
+    """
+    w = weights[weights > 1e-4].sort_values(ascending=False)
+    df = pd.DataFrame({"sleeve": [_short(s) for s in w.index],
+                       "bucket": [buckets.get(s, "") for s in w.index],
+                       "w": w.values * 100.0})
+    df["i"] = np.arange(len(df))
+    df["label"] = np.where(df["w"] >= 2.0,
+                           df["sleeve"] + " " +
+                           df["w"].round(0).astype(int).astype(str) + "%", "")
+    dom = [b for b in BUCKET_COLORS if b in set(df["bucket"])]
+    rng = [BUCKET_COLORS[b] for b in dom]
+    base = alt.Chart(df).encode(
+        theta=alt.Theta("w:Q", stack=True),
+        order=alt.Order("i:Q", sort="ascending"),
+        color=alt.Color("bucket:N", scale=alt.Scale(domain=dom, range=rng),
+                        legend=None))
+    arcs = base.mark_arc(innerRadius=72, outerRadius=112, stroke="#ffffff",
+                         strokeWidth=1.5).encode(
+        tooltip=[alt.Tooltip("sleeve:N", title="Sleeve"),
+                 alt.Tooltip("bucket:N", title="Bucket"),
+                 alt.Tooltip("w:Q", format=".2f", title="Weight %")])
+    text = base.mark_text(radius=128, font=FONT, fontSize=12,
+                          fontWeight=600).encode(text="label:N")
+    return _polish((arcs + text).properties(height=height))
+
+
+def pnl_alt(attrib, height=None):
+    """Interactive twin of pnl_fig: P&L per sleeve, gains green, losses red."""
+    a = attrib.copy()
+    a["sleeve_s"] = [_short(s) for s in a["sleeve"]]
+    a["lab"] = [f"{v / 1e3:+,.0f}k" for v in a["pnl_eur"]]
+    a = a.sort_values("pnl_eur", ascending=False)
+    order = list(a["sleeve_s"])
+    h = height or max(300, 27 * len(a))
+    tt = [alt.Tooltip("sleeve_s:N", title="Sleeve"),
+          alt.Tooltip("pnl_eur:Q", format=",.0f", title=f"P&L {CCY}")]
+    y = alt.Y("sleeve_s:N", sort=order, title=None,
+              axis=alt.Axis(labelLimit=0, grid=False, domain=False, ticks=False,
+                            labelPadding=8))
+    x = alt.X("pnl_eur:Q", title=None,
+              axis=alt.Axis(grid=True, domain=False, ticks=False,
+                            labelExpr="format(datum.value / 1e3, ',.0f') + 'k'"))
+    bars = alt.Chart(a).mark_bar(size=13).encode(
+        y=y, x=x,
+        color=alt.condition("datum.pnl_eur >= 0", alt.value(GAIN), alt.value(LOSS)),
+        tooltip=tt)
+    lab_p = (alt.Chart(a[a["pnl_eur"] >= 0])
+             .mark_text(align="left", dx=5, font=FONT, fontSize=11.5, color="#565b61")
+             .encode(y=y, x=alt.X("pnl_eur:Q", axis=None), text="lab:N"))
+    lab_n = (alt.Chart(a[a["pnl_eur"] < 0])
+             .mark_text(align="right", dx=-5, font=FONT, fontSize=11.5, color="#565b61")
+             .encode(y=y, x=alt.X("pnl_eur:Q", axis=None), text="lab:N"))
+    zero = (alt.Chart(pd.DataFrame({"z": [0.0]}))
+            .mark_rule(color="#3f434a", strokeWidth=1)
+            .encode(x=alt.X("z:Q", axis=None)))
+    return _polish(alt.layer(bars, zero, lab_p, lab_n).properties(height=h))
+
+
+def turnover_alt(rebal, height=160):
+    """Interactive twin of turnover_fig. Returns None when nothing traded."""
+    to = rebal.groupby("date")["trade_pct"].apply(lambda x: np.abs(x).sum()) * 100.0
+    hit = to[to > 1e-7]
+    if hit.empty:
+        return None
+    df = pd.DataFrame({"date": pd.to_datetime(hit.index), "to": hit.values})
+    lo = (pd.to_datetime(to.index.min()) - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    hi = (pd.to_datetime(to.index.max()) + pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    return _polish(alt.Chart(df).mark_bar(color=BAR, size=5).encode(
+        x=alt.X("date:T", title=None, scale=alt.Scale(domain=[lo, hi]),
+                axis=alt.Axis(grid=False)),
+        y=alt.Y("to:Q", axis=alt.Axis(title="Turnover",
+                                      labelExpr="format(datum.value, '.0f') + '%'")),
+        tooltip=[alt.Tooltip("date:T", format="%d %b %Y", title="Date"),
+                 alt.Tooltip("to:Q", format=".1f", title="Turnover %")])
+        .properties(height=height))
