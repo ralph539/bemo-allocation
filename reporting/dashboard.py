@@ -591,7 +591,7 @@ if view == "Single run":
                 st.markdown('<div class="bemo-note">Only available over full history. '
                             'Switch Period to see it.</div>', unsafe_allow_html=True)
 
-        hold = data.holdings(rebal)
+        hold = data.holdings(rebal, universe)
         st.markdown(f'<div class="bemo-sec">Holdings<span class="hint">on '
                     f'{last_date:%d %b %Y}, largest first</span></div>',
                     unsafe_allow_html=True)
@@ -604,12 +604,12 @@ if view == "Single run":
                 f'<tr><td>{_esc(str(hr["Sleeve"]))}</td>'
                 f'<td><span class="dot" style="background:{col}"></span>'
                 f'{_esc(str(hr["Bucket"]))}</td>'
-                f'<td class="etf">{_esc(str(hr["ETF"]))}</td>'
+                f'<td class="etf">{_esc(str(hr["Instrument"]))}</td>'
                 f'<td class="num">{hr["Weight %"]:.2f}</td>'
                 f'<td class="bar"><div style="width:{hr["Weight %"] / maxw * 100:.1f}%;'
                 f'background:{col}"></div></td></tr>')
         st.markdown('<table class="bemo-hold"><thead><tr><th>Sleeve</th><th>Bucket</th>'
-                    '<th>ETF</th><th class="num">Weight %</th><th></th></tr></thead>'
+                    '<th>Instrument</th><th class="num">Weight %</th><th></th></tr></thead>'
                     f'<tbody>{"".join(rows)}</tbody></table>', unsafe_allow_html=True)
 
         with st.expander("Trades: every date, every sleeve"):

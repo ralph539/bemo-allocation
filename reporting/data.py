@@ -219,7 +219,34 @@ def bucket_map() -> dict:
     return _BUCKET
 
 
-def proxy_map() -> dict:
+# What the long-history lab actually walked forward, by sleeve name. The config holds
+# the funded book's tickers; a long test reaches 2003 on these substitutes instead, so
+# labelling its holdings from the config would name instruments it never held.
+_LONG_PROXY = {
+    "Equity - Europe (home)": "VEURX",
+    "Equity - US": "VTSMX",
+    "Equity - Developed Asia-Pacific / Japan": "VPACX",
+    "Equity - Emerging / Asia": "VEIEX",
+    "Equity - Thematic AI / automation": "QQQ",
+    "Fixed income - EUR Govt / core": "VFITX",
+    "Fixed income - EUR IG credit": "VFICX",
+    "Fixed income - Inflation-linked": "VIPSX",
+    "Fixed income - High yield": "VWEHX",
+    "Fixed income - EM debt": "PREMX",
+    "Gold": "GC=F",
+    "Liquid alternatives / hedge funds": "MERFX",
+    "Real assets / REITs / infrastructure": "VGSIX",
+    "Cash / EUR money market": "^IRX",
+}
+_AI_SLEEVE = "Equity - Thematic AI / automation"
+
+
+def proxy_map(universe: str = None) -> dict:
+    if universe in _LONG_UNIVERSES:
+        m = dict(_LONG_PROXY)
+        if universe == "us_long_stocks":
+            m[_AI_SLEEVE] = "AAPL+MSFT+AMZN"
+        return m
     return {s["name"]: s["proxy"] for s in load_config().sleeves}
 
 
@@ -228,14 +255,14 @@ def latest_weights(rebal):
     return last.set_index("sleeve")["w_after"]
 
 
-def holdings(rebal, eps: float = 5e-5) -> pd.DataFrame:
+def holdings(rebal, universe: str = None, eps: float = 5e-5) -> pd.DataFrame:
     # the actual book on the last rebalance: one row per held sleeve, biggest first
     w = latest_weights(rebal)
-    bkt, prx = bucket_map(), proxy_map()
+    bkt, prx = bucket_map(), proxy_map(universe)
     df = pd.DataFrame({
         "Sleeve": [pretty_sleeve(s) for s in w.index],
         "Bucket": [bkt.get(s, "") for s in w.index],
-        "ETF": [prx.get(s, "") for s in w.index],
+        "Instrument": [prx.get(s, "") for s in w.index],
         "Weight %": (w.values * 100),
     })
     df = df[df["Weight %"] > eps * 100].sort_values("Weight %", ascending=False)
