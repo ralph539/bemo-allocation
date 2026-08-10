@@ -71,6 +71,7 @@ CRISES = [("GFC 2008", "2007-10-01", "2009-03-09"),
           ("COVID 2020", "2020-02-19", "2020-04-30"),
           ("Rate shock 2022", "2022-01-03", "2022-10-14")]
 MIN_OBS = 120
+LEDGER_UNIVERSES = ("us_long", "us_long_stocks")
 
 
 def _fetch(tickers: list, start="1996-01-01") -> pd.DataFrame:
@@ -137,7 +138,7 @@ def make_target(method, tier, cfg):
     return lambda r: allocate(r, t, cfg, method, False, "full")
 
 
-def run_universe(uname, cfg, ret, rows, curves) -> None:
+def run_universe(uname, cfg, ret, rows, curves, rebals=None, attribs=None) -> None:
     min_hist = cfg.params["window"]
     rf = ret[CASH_NAME]
     oos = ret.index[min_hist] if len(ret) > min_hist else None
@@ -153,7 +154,8 @@ def run_universe(uname, cfg, ret, rows, curves) -> None:
         for tier in tiers:
             fn = make_target(method, tier, cfg)
             try:
-                eq, tos, *_ = walk_forward(ret, fn, min_hist, COST_BPS, TOL_BAND)
+                eq, tos, rbl, _vl, att = walk_forward(ret, fn, min_hist, COST_BPS,
+                                                      TOL_BAND)
             except Exception as e:                  # a solver can fail on a short universe
                 print(f"  {method}/{tier}: skipped ({type(e).__name__})")
                 continue
@@ -170,6 +172,11 @@ def run_universe(uname, cfg, ret, rows, curves) -> None:
                              turnover=annual_turnover(tos, years)))
             for d, v in eq.items():
                 curves.append((uname, tier, method, d, float(v)))
+            if rebals is not None and uname in LEDGER_UNIVERSES:
+                for r in rbl:
+                    rebals.append({"universe": uname, "tier": tier, "method": method, **r})
+                for a in att:
+                    attribs.append({"universe": uname, "tier": tier, "method": method, **a})
             for pname, s, e in BLOCKS + CRISES:
                 sub = eq.loc[s:e]
                 kind = "crisis" if (pname, s, e) in CRISES else "block"
@@ -189,9 +196,9 @@ def run_universe(uname, cfg, ret, rows, curves) -> None:
 
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    rows, curves = [], []
+    rows, curves, rebals, attribs = [], [], [], []
     for uname, (cfg, ret) in build_universes().items():
-        run_universe(uname, cfg, ret, rows, curves)
+        run_universe(uname, cfg, ret, rows, curves, rebals, attribs)
     df = pd.DataFrame(rows)
     # benchmark-relative excess per (universe, period)
     bm = df[df.method == BENCH_NAME].set_index(["universe", "period"])
@@ -202,12 +209,18 @@ def main() -> None:
     df["excess_ret"] = df.ret - df.bench_ret
     df["beats_bench"] = df.excess_ret > 0
     cdf = pd.DataFrame(curves, columns=["universe", "tier", "method", "date", "equity"])
+    rdf = pd.DataFrame(rebals)
+    adf = pd.DataFrame(attribs)
     PARQUET.mkdir(parents=True, exist_ok=True)
     # one matrix, both stores: the EUR db and the US db that feeds the hosted dashboard
     for db_path in [DB] + ([US_DB] if US_DB.exists() else []):
         con = duckdb.connect(str(db_path))
         try:
-            for name, d in [("robustness_metrics", df), ("robustness_curves", cdf)]:
+            for name, d in [("robustness_metrics", df), ("robustness_curves", cdf),
+                            ("robustness_rebalance", rdf),
+                            ("robustness_attribution", adf)]:
+                if d.empty:
+                    continue
                 con.register("tmp", d)
                 con.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM tmp")
                 if db_path == DB:

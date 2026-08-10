@@ -23,14 +23,48 @@ def options():
         con.close()
 
 
+def _has_table(con, name: str) -> bool:
+    return bool(con.execute("select count(*) from duckdb_tables() where table_name=?",
+                            [name]).fetchone()[0])
+
+
+def load_lab_run(universe: str, tier: str, method: str) -> dict:
+    """Ledger for a lab universe, which has no weight variants and no stored metrics.
+
+    The robustness lab walks the same engine forward and now keeps the rebalance rows
+    and the sleeve attribution it used to discard, so a long test can show the same
+    holdings, trades and profit split as the funded book.
+    """
+    key = [universe, tier, method]
+    where = "universe=? and tier=? and method=?"
+    con = _con()
+    try:
+        if not _has_table(con, "robustness_rebalance"):
+            raise KeyError(f"no ledger stored for {universe}")
+        rebal = con.execute(f"select date, sleeve, target_w, w_before, w_after, trade_pct, "
+                            f"trade_eur, cost_eur, breached from robustness_rebalance "
+                            f"where {where} order by date, sleeve", key).df()
+        if rebal.empty:
+            raise KeyError(f"no ledger for {universe}/{tier}/{method}")
+        attrib = con.execute(f"select sleeve, pnl_eur, avg_weight, contrib_return from "
+                             f"robustness_attribution where {where} order by pnl_eur desc",
+                             key).df()
+        turn = con.execute(f"select turnover from robustness_metrics where {where} "
+                           f"and period='full'", key).fetchone()
+    finally:
+        con.close()
+    return {"metrics": {"turnover": float(turn[0]) if turn else float("nan")},
+            "value": None, "rebal": rebal, "attrib": attrib}
+
+
 def load_run(universe: str, tier: str, method: str, variant: str = "house") -> dict:
     key = [universe, variant, tier, method]
     where = "universe=? and variant=? and tier=? and method=?"
     con = _con()
     try:
         metrics = con.execute(f"select * from backtest_metrics where {where}", key).df()
-        if metrics.empty:
-            raise KeyError(f"no run for {universe}/{variant}/{tier}/{method}")
+        if metrics.empty:          # a lab universe: its ledger lives in the other tables
+            return load_lab_run(universe, tier, method)
         value = con.execute(f"select date, value_eur, daily_ret, drawdown from value_log "
                             f"where {where} order by date", key).df()
         rebal = con.execute(f"select date, sleeve, target_w, w_before, w_after, trade_pct, "

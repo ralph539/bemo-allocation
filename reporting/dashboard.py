@@ -482,24 +482,24 @@ if view == "Single run":
         st.warning(f"Only {len(mine)} trading days. Compare total return and drawdown "
                    "here, not CAGR, Sharpe or alpha.")
 
-    # the ledger only exists for the funded book, and only there can trades be counted
+    # every universe now stores a ledger: the funded book from the live backtest, the
+    # long tests from the robustness lab, which used to discard the rows it computed
     rebal = attrib = None
     turn_cell, trade_note = "", ""
-    if is_live:
-        try:
-            run = data.load_run(universe, tier, method, variant)
-            all_rebal, attrib = run["rebal"], run["attrib"]
-            rebal = all_rebal[(all_rebal["date"] >= p_start) & (all_rebal["date"] <= p_end)]
-            if rebal.empty:
-                rebal = all_rebal
-            traded = int(rebal[rebal["breached"]]["date"].nunique())
-            cost = rebal["cost_eur"].sum()
-            turn_cell = _cell("Turnover", f"{run['metrics']['turnover']:.2f}x",
-                              "How much of the book it trades a year, over the full run.")
-            trade_note = (f"Traded {traded} of {rebal['date'].nunique()} monthly checks, "
-                          f"cost {data.fmt_eur(cost)}")
-        except KeyError:
-            pass
+    try:
+        run = data.load_run(universe, tier, method, variant)
+        all_rebal, attrib = run["rebal"], run["attrib"]
+        rebal = all_rebal[(all_rebal["date"] >= p_start) & (all_rebal["date"] <= p_end)]
+        if rebal.empty:
+            rebal = all_rebal
+        traded = int(rebal[rebal["breached"]]["date"].nunique())
+        cost = rebal["cost_eur"].sum()
+        turn_cell = _cell("Turnover", f"{run['metrics']['turnover']:.2f}x",
+                          "How much of the book it trades a year, over the full run.")
+        trade_note = (f"Traded {traded} of {rebal['date'].nunique()} monthly checks, "
+                      f"cost {data.fmt_eur(cost)}")
+    except KeyError:
+        pass
 
     # the money outcome leads (what happened to the million, and would 60/40 have done
     # better); rates and ratios follow in one dense stat strip. Same numbers as before,
@@ -582,7 +582,7 @@ if view == "Single run":
                                               figsize=(6.6, 6.0), scale=1.8)))
         with c[1]:
             st.markdown('<div class="bemo-sec">Profit and loss by sleeve'
-                        f'<span class="hint">{data.CCY}, full history</span></div>',
+                        f'<span class="hint">{data.CCY}, whole run</span></div>',
                         unsafe_allow_html=True)
             if is_full:
                 st.altair_chart(charts.pnl_alt(attrib), use_container_width=True,
@@ -657,9 +657,8 @@ if view == "Single run":
                                f"rebalance_{variant}_{tier}_{method}_{universe}.csv",
                                "text/csv")
     else:
-        twin = LIVE_EQUIV.get(universe)
-        st.info("The long tests store equity curves only, so there are no holdings "
-                "or trades to show. Switch Universe to the real book for those.")
+        st.info("No rebalance ledger stored for this run, so there are no holdings or "
+                "trades to show. Every other number on the page is unaffected.")
 
 # ---------------- compare ----------------
 elif view == "Compare runs":
