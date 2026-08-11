@@ -142,6 +142,11 @@ def all_curves() -> pd.DataFrame:
         con.close()
     df = pd.concat(frames, ignore_index=True)
     df["date"] = pd.to_datetime(df["date"])
+    # five label columns over 1.7M rows: as strings this frame is ~170 MB, as
+    # categories ~36 MB. The hosted container's memory cap makes this the difference
+    # between running and being killed.
+    for c in ("universe", "variant", "tier", "method", "source"):
+        df[c] = df[c].astype("category")
     return df
 
 

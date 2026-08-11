@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from html import escape as _esc
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -266,17 +267,17 @@ def _db_stamp() -> float:
     return os.path.getmtime(_DB)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=1)
 def load_curves(db_stamp: float = None):
     return data.all_curves()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=8)
 def load_rf(universe: str, db_stamp: float = None):
     return data.risk_free(universe)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, max_entries=64)
 def period_board(universe: str, period: str, db_stamp: float = None) -> pd.DataFrame:
     """Every run in a universe, scored over one window, computed from the curves.
 
@@ -608,8 +609,10 @@ if view == "Single run":
             w = data.latest_weights(rebal)
             # the matplotlib donut keeps its leader-line de-collision: the Altair twin
             # lays labels on the ring itself, so long ones hide behind the arc
-            st.pyplot(_blend(charts.donut_fig(w, data.bucket_map(),
-                                              figsize=(6.6, 6.0), scale=1.8)))
+            _fig = _blend(charts.donut_fig(w, data.bucket_map(),
+                                           figsize=(6.6, 6.0), scale=1.8))
+            st.pyplot(_fig)
+            plt.close(_fig)
         with c[1]:
             st.markdown('<div class="bemo-sec">Profit and loss by sleeve'
                         f'<span class="hint">{data.CCY}, whole run</span></div>',
