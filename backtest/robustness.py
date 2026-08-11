@@ -72,6 +72,29 @@ CRISES = [("GFC 2008", "2007-10-01", "2009-03-09"),
           ("Rate shock 2022", "2022-01-03", "2022-10-14")]
 MIN_OBS = 120
 LEDGER_UNIVERSES = ("us_long", "us_long_stocks")
+# Cap regimes and combinations, walked across the long histories too. Two ladders:
+# the incumbent (mean_cvar) and the attacker (max_ret_cvarcap). band10 is omitted
+# on purpose: the engine's default band is already 10 points, so it duplicates the
+# base run. Note the attacker's "uncapped" rung is not truly uncapped: its CVaR
+# budget survives, because that constraint is the method itself.
+EXTRA_SPECS = {
+    "mean_cvar_no_band":          dict(base="mean_cvar", regime="no_band"),
+    "mean_cvar_no_sleeve_caps":   dict(base="mean_cvar", regime="no_sleeve_caps"),
+    "mean_cvar_equity_band_only": dict(base="mean_cvar", regime="equity_band_only"),
+    "mean_cvar_uncapped":         dict(base="mean_cvar", regime="uncapped"),
+    "mean_cvar_band15":           dict(base="mean_cvar", band=0.15),
+    "mean_cvar_relaxed":          dict(base="mean_cvar", regime="relaxed"),
+    "trend_tilt_relaxed":         dict(base="trend_tilt", regime="relaxed"),
+    "cvarcap_relaxed":            dict(base="max_ret_cvarcap", regime="relaxed"),
+    "cvarcap_breaker":            dict(base="max_ret_cvarcap", overlay="regime_breaker"),
+    "cvarcap_dualmom":            dict(base="max_ret_cvarcap", overlay="dual_momentum"),
+    "trend_breaker":              dict(base="trend_tilt", overlay="regime_breaker"),
+    "trend_dualmom":              dict(base="trend_tilt", overlay="dual_momentum"),
+    "cvarcap_no_band":            dict(base="max_ret_cvarcap", regime="no_band"),
+    "cvarcap_no_sleeve_caps":     dict(base="max_ret_cvarcap", regime="no_sleeve_caps"),
+    "cvarcap_equity_band_only":   dict(base="max_ret_cvarcap", regime="equity_band_only"),
+    "cvarcap_uncapped":           dict(base="max_ret_cvarcap", regime="uncapped"),
+}
 
 
 def _fetch(tickers: list, start="1996-01-01") -> pd.DataFrame:
@@ -133,6 +156,11 @@ def make_target(method, tier, cfg):
     if method == "strategic":
         w = pd.Series(cfg.tier_w[tier], index=cfg.funded)
         return lambda r: w
+    if method in EXTRA_SPECS:
+        s = EXTRA_SPECS[method]
+        return lambda r: allocate(r, tier, cfg, s["base"], False,
+                                  s.get("regime", "full"), band=s.get("band"),
+                                  overlay=s.get("overlay"))
     # reference optimisers ignore the tier; allocate() resolves the rest by name
     t = TIERS[0] if method in REF_METHODS else tier
     return lambda r: allocate(r, t, cfg, method, False, "full")
@@ -148,7 +176,9 @@ def run_universe(uname, cfg, ret, rows, curves, rebals=None, attribs=None) -> No
     print(f"[{uname}] data {ret.index[0].date()} .. {ret.index[-1].date()}, "
           f"OOS from {oos.date()}")
     eqs = {}
-    for method in [BENCH_NAME] + TIER_METHODS + REF_METHODS:
+    # the diagnostic ladders run only where the dashboard shows them
+    extras = list(EXTRA_SPECS) if uname in LEDGER_UNIVERSES else []
+    for method in [BENCH_NAME] + TIER_METHODS + extras + REF_METHODS:
         # bench and the risk-structure optimisers do not depend on the tier
         tiers = ["-"] if method in [BENCH_NAME] + REF_METHODS else TIERS
         for tier in tiers:

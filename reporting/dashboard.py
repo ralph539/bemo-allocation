@@ -127,7 +127,9 @@ GROUPS = {
                      "trend_breaker", "trend_dualmom"],
     "Cap regimes": ["mean_cvar_no_band", "mean_cvar_no_sleeve_caps",
                     "mean_cvar_equity_band_only", "mean_cvar_uncapped",
-                    "mean_cvar_band10", "mean_cvar_band15", "mean_cvar_relaxed"],
+                    "mean_cvar_band10", "mean_cvar_band15", "mean_cvar_relaxed",
+                    "cvarcap_no_band", "cvarcap_no_sleeve_caps",
+                    "cvarcap_equity_band_only", "cvarcap_uncapped"],
     "References (risk only)": ["risk_parity", "hrp", "min_variance", "max_sharpe",
                                "max_diversification", "equal_weight", "inverse_vol", BENCH],
 }
@@ -159,6 +161,10 @@ NICE = {
     "mean_cvar_band10": "Wider band 10%",
     "mean_cvar_band15": "Wider band 15%",
     "mean_cvar_relaxed": "Relaxed caps",
+    "cvarcap_no_band": "CVaR-budget: no band",
+    "cvarcap_no_sleeve_caps": "CVaR-budget: no sleeve caps",
+    "cvarcap_equity_band_only": "CVaR-budget: equity band only",
+    "cvarcap_uncapped": "CVaR-budget only",
     "risk_parity": "Risk parity",
     "hrp": "Hierarchical risk parity",
     "min_variance": "Min variance",
@@ -197,6 +203,12 @@ DESC = {
     "mean_cvar_band10": "Mean-CVaR with a wider 10% tactical band.",
     "mean_cvar_band15": "Mean-CVaR with a wider 15% tactical band.",
     "mean_cvar_relaxed": "Mean-CVaR under the relaxed cap regime (no band, EM and AI widened).",
+    "cvarcap_no_band": "Max return under the CVaR budget, tactical band removed.",
+    "cvarcap_no_sleeve_caps": "Max return under the CVaR budget, per-sleeve caps removed.",
+    "cvarcap_equity_band_only": "Max return under the CVaR budget, only the equity band kept.",
+    "cvarcap_uncapped": "Max return with every mandate cap removed. Only the tail budget "
+                        "(CVaR <= the policy's own) remains, because that constraint is the "
+                        "method itself. Shows what the fences add beyond the budget.",
     "risk_parity": "Equal risk contribution. Risk structure only, ignores tier and strategic weights.",
     "hrp": "Hierarchical risk parity. Risk structure only.",
     "min_variance": "Classical Markowitz minimum variance, long-only, uncapped.",
@@ -216,6 +228,15 @@ SHORT = {
     "min_variance": "Min variance", "max_sharpe": "Max Sharpe",
     "max_diversification": "Max diversification", "equal_weight": "Equal weight",
     "inverse_vol": "Inverse vol", BENCH: "60/40 benchmark",
+    "cvarcap_relaxed": "CVaRcap relaxed", "cvarcap_breaker": "CVaRcap + breaker",
+    "cvarcap_dualmom": "CVaRcap + dualmom", "trend_breaker": "Trend + breaker",
+    "trend_dualmom": "Trend + dualmom", "trend_tilt_relaxed": "Trend relaxed",
+    "mean_cvar_no_band": "MC no band", "mean_cvar_no_sleeve_caps": "MC no sleeves",
+    "mean_cvar_equity_band_only": "MC eq-band only", "mean_cvar_uncapped": "MC uncapped",
+    "mean_cvar_band15": "MC band 15", "mean_cvar_relaxed": "MC relaxed",
+    "mean_cvar_anchored": "MC anchored", "vol_target": "Vol target",
+    "cvarcap_no_band": "CVaRcap no band", "cvarcap_no_sleeve_caps": "CVaRcap no sleeves",
+    "cvarcap_equity_band_only": "CVaRcap eq-band", "cvarcap_uncapped": "CVaRcap budget-only",
 }
 
 UNIVERSE_HELP_ALL = (
