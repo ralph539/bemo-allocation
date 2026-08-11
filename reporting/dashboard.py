@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -260,27 +261,34 @@ PCT = ["CAGR %", "Vol %", "Max DD %", "CVaR95 %", "Alpha %", "TE %", "vs 60/40 %
 RATIO = ["Sharpe", "Beta", "Info ratio", "Turnover", "vs 60/40 Sharpe"]
 
 
+from engine.io import DB as _DB
+
+
+def _db_stamp() -> float:
+    return os.path.getmtime(_DB)
+
+
 @st.cache_data(show_spinner=False)
-def load_curves():
+def load_curves(db_stamp: float = None):
     return data.all_curves()
 
 
 @st.cache_data(show_spinner=False)
-def load_rf(universe: str):
+def load_rf(universe: str, db_stamp: float = None):
     return data.risk_free(universe)
 
 
 @st.cache_data(show_spinner=False)
-def period_board(universe: str, period: str) -> pd.DataFrame:
+def period_board(universe: str, period: str, db_stamp: float = None) -> pd.DataFrame:
     """Every run in a universe, scored over one window, computed from the curves.
 
     Sub-period numbers are slices of a single walk-forward, never a re-fit, so they
     stay honest out-of-sample. Sharpe is an excess-return Sharpe over the universe's
     own money-market sleeve, matching the full-sample metrics in the store.
     """
-    cur = load_curves()
+    cur = load_curves(db_stamp)
     cur = cur[cur.universe == universe]
-    rf = load_rf(universe)
+    rf = load_rf(universe, db_stamp)
     rf = None if rf is None or rf.empty else rf
     rows = []
     for (src, var, tier, meth), g in cur.groupby(["source", "variant", "tier", "method"],
@@ -304,7 +312,8 @@ def period_board(universe: str, period: str) -> pd.DataFrame:
 
 
 board = data.scoreboard()      # full-sample metrics, used for the Deflated Sharpe note
-CURVES = load_curves()
+_STAMP = _db_stamp()
+CURVES = load_curves(_STAMP)
 # Only the books that carry the AI sleeve. The no-AI variants and the EUR lab
 # re-runs were diagnostics; showing all seven made the picker unreadable.
 SHOW_UNIVERSES = ["full_14", "us_long", "us_long_stocks"]
@@ -437,7 +446,7 @@ with st.sidebar:
         st.info("Only the long tests reach back to 2003. Pick one above for the "
                 "earlier decades and crises.")
 
-pboard = period_board(universe, period)
+pboard = period_board(universe, period, _STAMP)
 is_full = period == periods.FULL
 is_live = universe in LIVE_UNIVERSES
 
@@ -477,7 +486,7 @@ if view == "Single run":
     row = pboard[(pboard.variant == variant) & (pboard.tier == tier)
                  & (pboard.method == method)]
     row = row.iloc[0] if len(row) else None
-    rf_u = load_rf(universe)
+    rf_u = load_rf(universe, _STAMP)
     rf_u = None if rf_u is None or rf_u.empty else rf_u
     bm = (benchmark_metrics(mine, bench_eq, rf_u) if bench_eq is not None
           else {"beta": float("nan"), "alpha": float("nan")})
@@ -877,7 +886,7 @@ else:
 
     recs = []
     for p in [periods.FULL] + per_list:
-        pb = period_board(uni, p)
+        pb = period_board(uni, p, _STAMP)
         if pb.empty:
             continue
         # one weight variant of each tier-dependent method, plus the tier-free references
