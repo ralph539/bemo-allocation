@@ -122,31 +122,27 @@ def all_curves() -> pd.DataFrame:
     history. The robustness lab carries the long-history universes on house weights.
     Both are walk-forward curves, so they slice the same way.
     """
+    # One UNION ALL straight to Arrow, decoded with strings_to_categorical: the frame
+    # lands at ~36 MB with no ~170 MB string-frame spike on the way, which is what the
+    # hosted container's memory cap requires. The lab rows take the live convention:
+    # tier-free runs (benchmark, risk-structure optimisers) carry no variant either.
+    q = ("select universe, variant, tier, method, date, equity, 'live' as source "
+         "from backtest_curves "
+         "union all "
+         "select universe, case when tier = '-' then '-' else 'house' end as variant, "
+         "tier, method, date, equity, 'lab' as source from robustness_curves")
+    q_live = ("select universe, variant, tier, method, date, equity, 'live' as source "
+              "from backtest_curves")
     con = _con()
     try:
-        live = con.execute("select universe, variant, tier, method, date, equity "
-                           "from backtest_curves").df()
-        live["source"] = "live"
-        frames = [live]
         try:
-            lab = con.execute("select universe, tier, method, date, equity "
-                              "from robustness_curves").df()
-            # match the live convention: tier-free runs (benchmark, risk-structure
-            # optimisers) carry no variant either, so run labels stay comparable
-            lab["variant"] = [REF if t == REF else "house" for t in lab.tier]
-            lab["source"] = "lab"
-            frames.append(lab)
-        except Exception:
-            pass
+            tbl = con.execute(q).fetch_arrow_table()
+        except Exception:                      # a store without the lab tables
+            tbl = con.execute(q_live).fetch_arrow_table()
     finally:
         con.close()
-    df = pd.concat(frames, ignore_index=True)
+    df = tbl.to_pandas(strings_to_categorical=True)
     df["date"] = pd.to_datetime(df["date"])
-    # five label columns over 1.7M rows: as strings this frame is ~170 MB, as
-    # categories ~36 MB. The hosted container's memory cap makes this the difference
-    # between running and being killed.
-    for c in ("universe", "variant", "tier", "method", "source"):
-        df[c] = df[c].astype("category")
     return df
 
 
