@@ -196,7 +196,7 @@ DESC = {
     "cvarcap_dualmom": "Max-return-under-CVaR-cap with dual momentum on top. Near flat in 2022.",
     "trend_breaker": "Trend tilt with the regime breaker on top.",
     "trend_dualmom": "Trend tilt with dual momentum on top.",
-    "mean_cvar_no_band": "Mean-CVaR with the +/-5% tactical band removed.",
+    "mean_cvar_no_band": "Mean-CVaR with the +/-10 point tactical band removed.",
     "mean_cvar_no_sleeve_caps": "Mean-CVaR with the per-sleeve caps removed (equity band kept).",
     "mean_cvar_equity_band_only": "Mean-CVaR keeping only the equity band.",
     "mean_cvar_uncapped": "Mean-CVaR long-only, all caps removed. Shows what the caps cost.",
@@ -510,6 +510,8 @@ if view == "Single run":
     try:
         run = data.load_run(universe, tier, method, variant)
         all_rebal, attrib = run["rebal"], run["attrib"]
+        if all_rebal.empty:
+            raise KeyError("no ledger rows stored for this run")
         rebal = all_rebal[(all_rebal["date"] >= p_start) & (all_rebal["date"] <= p_end)]
         if rebal.empty:
             rebal = all_rebal

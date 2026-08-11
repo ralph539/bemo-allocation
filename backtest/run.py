@@ -47,6 +47,12 @@ LAB_TIER_METHODS = ["mean_variance", "black_litterman_mom", "max_ret_cvarcap",
                     "cvarcap_relaxed", "cvarcap_breaker", "cvarcap_dualmom",
                     "trend_breaker", "trend_dualmom"]
 BAND_METHODS = {"mean_cvar_band10": 0.10, "mean_cvar_band15": 0.15}
+# the attacker's cap ladder: max_ret_cvarcap under each constraint layer. Its CVaR
+# budget survives every rung, because that constraint is the method itself.
+CVARCAP_METHODS = {"cvarcap_no_band": "no_band",
+                   "cvarcap_no_sleeve_caps": "no_sleeve_caps",
+                   "cvarcap_equity_band_only": "equity_band_only",
+                   "cvarcap_uncapped": "uncapped"}
 RELAXED_METHODS = {"mean_cvar_relaxed": "mean_cvar", "trend_tilt_relaxed": "trend_tilt"}
 # offense optimiser (max return under the strategic CVaR cap, or trend-boosted mu) paired
 # with a relaxed cap regime or a risk-off overlay: tilt harder, then de-risk on top.
@@ -56,7 +62,7 @@ COMBO_METHODS = {"cvarcap_relaxed": {"method": "max_ret_cvarcap", "regime": "rel
                  "trend_breaker": {"method": "trend_tilt", "overlay": "regime_breaker"},
                  "trend_dualmom": {"method": "trend_tilt", "overlay": "dual_momentum"}}
 METHODS = (REF_METHODS + LAB_REF_METHODS + ["strategic"] + list(CAP_METHODS)
-           + LAB_TIER_METHODS + [BENCH_NAME])
+           + LAB_TIER_METHODS + list(CVARCAP_METHODS) + [BENCH_NAME])
 COST_BPS = 10.0
 TOL_BAND = 0.05
 REF = "-"                                       # tier/variant placeholder for the references
@@ -69,7 +75,8 @@ def ref_methods() -> list:
 def methods_for(variant: str) -> list:
     if variant != CAP_HOST:
         return WEIGHT_METHODS
-    return ["strategic"] + list(CAP_METHODS) + (LAB_TIER_METHODS if LAB else [])
+    return ["strategic"] + list(CAP_METHODS) + (
+        LAB_TIER_METHODS + list(CVARCAP_METHODS) if LAB else [])
 
 
 def make_target(method, tier, config):
@@ -82,6 +89,9 @@ def make_target(method, tier, config):
     if method in CAP_METHODS:
         regime = CAP_METHODS[method]
         return lambda r: allocate(r, tier, config, "mean_cvar", False, regime)
+    if method in CVARCAP_METHODS:
+        regime = CVARCAP_METHODS[method]
+        return lambda r: allocate(r, tier, config, "max_ret_cvarcap", False, regime)
     if method in BAND_METHODS:
         band = BAND_METHODS[method]
         return lambda r: allocate(r, tier, config, "mean_cvar", False, "full", band)
