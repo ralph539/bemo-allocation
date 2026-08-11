@@ -42,11 +42,11 @@ LAB_REF_METHODS = ["max_diversification", "equal_weight", "inverse_vol"]
 LAB_TIER_METHODS = ["mean_variance", "black_litterman_mom", "max_ret_cvarcap",
                     "mean_cvar_anchored", "trend_tilt", "vol_target",
                     "regime_breaker", "dual_momentum",
-                    "mean_cvar_band10", "mean_cvar_band15",
+                    "mean_cvar_band15",
                     "mean_cvar_relaxed", "trend_tilt_relaxed",
                     "cvarcap_relaxed", "cvarcap_breaker", "cvarcap_dualmom",
                     "trend_breaker", "trend_dualmom"]
-BAND_METHODS = {"mean_cvar_band10": 0.10, "mean_cvar_band15": 0.15}
+BAND_METHODS = {"mean_cvar_band15": 0.15}
 # the attacker's cap ladder: max_ret_cvarcap under each constraint layer. Its CVaR
 # budget survives every rung, because that constraint is the method itself.
 CVARCAP_METHODS = {"cvarcap_no_band": "no_band",
