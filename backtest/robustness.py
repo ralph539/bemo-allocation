@@ -30,7 +30,8 @@ import numpy as np
 import pandas as pd
 
 from engine.io import load_config, load_returns, TIERS, AI_NAME, CASH_NAME, DB, ROOT
-from engine.allocate import allocate
+from engine.allocate import allocate, _window
+from engine.estimators import ledoit_wolf_cov, bayes_stein_mu
 from engine.views import NAME
 from backtest.benchmark import bench_weights, BENCH_NAME
 from backtest.universe import clean_panel, reduce_universe
@@ -96,6 +97,82 @@ EXTRA_SPECS = {
     "cvarcap_uncapped":           dict(base="max_ret_cvarcap", regime="uncapped"),
 }
 
+# Input experiments: same caps, same loop, one estimator changed at a time.
+# ewma: scenario weights lambda=0.97, the RiskMetrics monthly parameter, fixed before
+#       any result was seen. Recent risk counts more; 2022's correlation flip enters
+#       the tail within weeks instead of being averaged over three years.
+# w5y / w10y: the whole engine (mu and scenarios) on a longer lookback.
+# yield: mu = current cash rate + each sleeve's expanding-window excess premium,
+#        shrunk toward the cross-sleeve mean. Point-in-time only. Levels move with
+#        rates; history sets only the premia.
+EWMA_LAM = 0.97
+EXPERIMENTS = ("mean_cvar_ewma", "cvarcap_ewma", "mean_cvar_w5y", "mean_cvar_w10y",
+               "mean_cvar_yield", "cvarcap_yield")
+EXP_WINDOW = {"mean_cvar_w5y": 1260, "mean_cvar_w10y": 2520}
+
+
+def _ewma_probs(S: int) -> np.ndarray:
+    w = EWMA_LAM ** np.arange(S - 1, -1, -1)
+    return w / w.sum()
+
+
+def _weighted_cvar(losses: np.ndarray, p: np.ndarray, beta: float) -> float:
+    order = np.argsort(losses)[::-1]
+    lp, pp = losses[order], p[order]
+    tail = 1.0 - beta
+    prior = np.concatenate([[0.0], np.cumsum(pp)[:-1]])
+    take = np.clip(tail - prior, 0.0, pp)
+    return float((lp * take).sum() / tail)
+
+
+def _shrunk(vec: np.ndarray, Sigma: np.ndarray, T: int) -> np.ndarray:
+    g = vec.mean()
+    d = vec - g
+    n = len(vec)
+    phi = (n + 2) / ((n + 2) + (T / 252.0) * float(d @ np.linalg.pinv(Sigma) @ d))
+    phi = min(max(phi, 0.0), 1.0)
+    return (1 - phi) * vec + phi * g
+
+
+def _mu_yield(upto, cfg) -> np.ndarray:
+    # expanding excess premia over the cash sleeve, shrunk; level from today's cash rate
+    rf = upto[CASH_NAME]
+    prem = (upto.sub(rf, axis=0)).mean().values * 252.0
+    W = _window(upto, cfg.params["window"]).values
+    prem = _shrunk(prem, ledoit_wolf_cov(W), len(upto))
+    rf_now = float(rf.tail(21).mean()) * 252.0
+    mu = rf_now + prem
+    mu[cfg.idx(CASH_NAME)] = rf_now
+    return mu
+
+
+def make_experiment(method, tier, cfg):
+    from engine.optimizers import mean_cvar, max_return_cvar_cap
+    band = cfg.params["band"]
+
+    def solve(upto):
+        W = EXP_WINDOW.get(method, cfg.params["window"])
+        R = _window(upto, W)
+        Rv = R.values
+        if method in ("mean_cvar_yield", "cvarcap_yield"):
+            mu = _mu_yield(upto, cfg)
+        else:
+            mu = bayes_stein_mu(Rv, ledoit_wolf_cov(Rv))
+        p = _ewma_probs(len(Rv)) if method.endswith("_ewma") else None
+        ws = cfg.tier_w[tier]
+        if method.startswith("cvarcap"):
+            losses = -(Rv @ ws)
+            beta = cfg.params["cvar_alpha"]
+            ceil = (_weighted_cvar(losses, p, beta) if p is not None
+                    else float(np.sort(losses)[int(beta * len(losses)):].mean()))
+            w, _ = max_return_cvar_cap(Rv, mu, ceil, tier, cfg, band, "full", probs=p)
+        else:
+            target = float(mu @ ws)
+            w, _ = mean_cvar(Rv, mu, target, tier, cfg, band, "full", 0.0, probs=p)
+        return pd.Series(w, index=cfg.funded)
+
+    return solve
+
 
 def _fetch(tickers: list, start="1996-01-01") -> pd.DataFrame:
     import yfinance as yf
@@ -156,6 +233,8 @@ def make_target(method, tier, cfg):
     if method == "strategic":
         w = pd.Series(cfg.tier_w[tier], index=cfg.funded)
         return lambda r: w
+    if method in EXPERIMENTS:
+        return make_experiment(method, tier, cfg)
     if method in EXTRA_SPECS:
         s = EXTRA_SPECS[method]
         return lambda r: allocate(r, tier, cfg, s["base"], False,
@@ -177,14 +256,15 @@ def run_universe(uname, cfg, ret, rows, curves, rebals=None, attribs=None) -> No
           f"OOS from {oos.date()}")
     eqs = {}
     # the diagnostic ladders run only where the dashboard shows them
-    extras = list(EXTRA_SPECS) if uname in LEDGER_UNIVERSES else []
+    extras = (list(EXTRA_SPECS) + list(EXPERIMENTS)) if uname in LEDGER_UNIVERSES else []
     for method in [BENCH_NAME] + TIER_METHODS + extras + REF_METHODS:
         # bench and the risk-structure optimisers do not depend on the tier
         tiers = ["-"] if method in [BENCH_NAME] + REF_METHODS else TIERS
         for tier in tiers:
             fn = make_target(method, tier, cfg)
+            mh = EXP_WINDOW.get(method, min_hist)
             try:
-                eq, tos, rbl, _vl, att = walk_forward(ret, fn, min_hist, COST_BPS,
+                eq, tos, rbl, _vl, att = walk_forward(ret, fn, mh, COST_BPS,
                                                       TOL_BAND)
             except Exception as e:                  # a solver can fail on a short universe
                 print(f"  {method}/{tier}: skipped ({type(e).__name__})")

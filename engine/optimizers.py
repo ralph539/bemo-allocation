@@ -98,15 +98,20 @@ def mean_variance(R: np.ndarray, mu: np.ndarray, target: float, tier: str, confi
 
 
 def mean_cvar(R: np.ndarray, mu: np.ndarray, target: float, tier: str, config,
-              band: float, regime: str = "full", anchor: float = 0.0):
+              band: float, regime: str = "full", anchor: float = 0.0, probs=None):
     # minimise 95% CVaR of loss s.t. return target and the tier hard caps.
     # anchor > 0 adds a ridge pull toward the strategic weights (lowers turnover).
+    # probs weights the scenarios (exponential weighting makes recent risk count more);
+    # None keeps every day equally likely, the original estimator.
     S, n = R.shape
     beta = config.params["cvar_alpha"]
     w = cp.Variable(n)
     var = cp.Variable()
     z = cp.Variable(S, nonneg=True)
-    cvar = var + cp.sum(z) / ((1 - beta) * S)
+    if probs is None:
+        cvar = var + cp.sum(z) / ((1 - beta) * S)
+    else:
+        cvar = var + (probs @ z) / (1 - beta)
     obj = cvar
     if anchor > 0:
         obj = cvar + anchor * cp.sum_squares(w - config.tier_w[tier])
@@ -123,7 +128,7 @@ def mean_cvar(R: np.ndarray, mu: np.ndarray, target: float, tier: str, config,
 
 
 def max_return_cvar_cap(R: np.ndarray, mu: np.ndarray, cvar_ceiling: float, tier: str,
-                        config, band: float, regime: str = "full"):
+                        config, band: float, regime: str = "full", probs=None):
     # dual of mean_cvar: maximise expected return s.t. a binding 95% CVaR ceiling and
     # the tier hard caps. The ceiling is the strategic portfolio's own CVaR, so this
     # chases return without taking more tail risk than the policy allows.
@@ -132,7 +137,10 @@ def max_return_cvar_cap(R: np.ndarray, mu: np.ndarray, cvar_ceiling: float, tier
     w = cp.Variable(n)
     var = cp.Variable()
     z = cp.Variable(S, nonneg=True)
-    cvar = var + cp.sum(z) / ((1 - beta) * S)
+    if probs is None:
+        cvar = var + cp.sum(z) / ((1 - beta) * S)
+    else:
+        cvar = var + (probs @ z) / (1 - beta)
     cons = tier_constraints(w, tier, config, band, regime)
     cons += [z >= -(R @ w) - var, cvar <= cvar_ceiling]
     prob = cp.Problem(cp.Maximize(mu @ w), cons)

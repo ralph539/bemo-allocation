@@ -132,6 +132,8 @@ GROUPS = {
                     "mean_cvar_band15", "mean_cvar_relaxed",
                     "cvarcap_no_band", "cvarcap_no_sleeve_caps",
                     "cvarcap_equity_band_only", "cvarcap_uncapped"],
+    "Input experiments": ["mean_cvar_ewma", "cvarcap_ewma", "mean_cvar_w5y",
+                          "mean_cvar_w10y", "mean_cvar_yield", "cvarcap_yield"],
     "References (risk only)": ["risk_parity", "hrp", "min_variance", "max_sharpe",
                                "max_diversification", "equal_weight", "inverse_vol", BENCH],
 }
@@ -166,6 +168,12 @@ NICE = {
     "cvarcap_no_sleeve_caps": "CVaR-budget: no sleeve caps",
     "cvarcap_equity_band_only": "CVaR-budget: equity band only",
     "cvarcap_uncapped": "CVaR-budget only",
+    "mean_cvar_ewma": "Mean-CVaR, EWMA scenarios",
+    "cvarcap_ewma": "Max ret CVaR cap, EWMA scenarios",
+    "mean_cvar_w5y": "Mean-CVaR, 5y window",
+    "mean_cvar_w10y": "Mean-CVaR, 10y window",
+    "mean_cvar_yield": "Mean-CVaR, yield-anchored mu",
+    "cvarcap_yield": "Max ret CVaR cap, yield-anchored mu",
     "risk_parity": "Risk parity",
     "hrp": "Hierarchical risk parity",
     "min_variance": "Min variance",
@@ -209,6 +217,17 @@ DESC = {
     "cvarcap_uncapped": "Max return with every mandate cap removed. Only the tail budget "
                         "(CVaR <= the policy's own) remains, because that constraint is the "
                         "method itself. Shows what the fences add beyond the budget.",
+    "mean_cvar_ewma": "House engine with exponentially weighted scenarios (lambda 0.97, the "
+                      "RiskMetrics monthly parameter): recent risk counts more in the tail.",
+    "cvarcap_ewma": "The CVaR-budget engine on the same exponentially weighted scenarios.",
+    "mean_cvar_w5y": "House engine estimating everything on 5 years instead of 3. Its "
+                     "backtest starts later, since more history is needed before trading.",
+    "mean_cvar_w10y": "House engine on a 10 year lookback. Starts around 2010, so it "
+                      "never faces the GFC out of sample.",
+    "mean_cvar_yield": "House engine with forward-looking mu: today's cash rate plus each "
+                       "sleeve's shrunk long-run excess premium, point-in-time only.",
+    "cvarcap_yield": "The CVaR-budget engine on the same yield-anchored mu. The most "
+                     "mu-sensitive method on the most defensible mu.",
     "risk_parity": "Equal risk contribution. Risk structure only, ignores tier and strategic weights.",
     "hrp": "Hierarchical risk parity. Risk structure only.",
     "min_variance": "Classical Markowitz minimum variance, long-only, uncapped.",
@@ -237,6 +256,9 @@ SHORT = {
     "mean_cvar_anchored": "MC anchored", "vol_target": "Vol target",
     "cvarcap_no_band": "CVaRcap no band", "cvarcap_no_sleeve_caps": "CVaRcap no sleeves",
     "cvarcap_equity_band_only": "CVaRcap eq-band", "cvarcap_uncapped": "CVaRcap budget-only",
+    "mean_cvar_ewma": "MC EWMA", "cvarcap_ewma": "CVaRcap EWMA",
+    "mean_cvar_w5y": "MC 5y", "mean_cvar_w10y": "MC 10y",
+    "mean_cvar_yield": "MC yield-mu", "cvarcap_yield": "CVaRcap yield-mu",
 }
 
 UNIVERSE_HELP_ALL = (
